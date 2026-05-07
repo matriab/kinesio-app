@@ -20,7 +20,7 @@ async function cloudSave(userId, key, value) {
 }
 
 // ─── Local Storage fallback ────────────────────────────────────────
-const SK = { patients:"kinesio_patients_v3", templates:"kinesio_templates_v2", agenda:"kinesio_agenda_v1", subjects:"kinesio_subjects_v1", projects:"kinesio_projects_v1" };
+const SK = { patients:"kinesio_patients_v3", templates:"kinesio_templates_v2", agenda:"kinesio_agenda_v1", subjects:"kinesio_subjects_v1", projects:"kinesio_projects_v1", summaries:"kinesio_summaries_v1" };
 const load = k => { try { const r=localStorage.getItem(k); return r?JSON.parse(r):null; } catch { return null; } };
 const save = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch {} };
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
@@ -62,11 +62,21 @@ const T = {
 const FONT = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
   *{font-family:'Inter','Aptos','Segoe UI',system-ui,sans-serif;box-sizing:border-box;}
-  body{margin:0;background:${T.bg};}
+  body{margin:0;background:${T.bg};-webkit-text-size-adjust:100%;}
   ::-webkit-scrollbar{width:4px;}
   ::-webkit-scrollbar-track{background:transparent;}
   ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:99px;}
-  input,textarea,select{font-family:inherit;}
+  input,textarea,select{font-family:inherit;font-size:16px;}
+  @media(max-width:640px){
+    .grid-2{grid-template-columns:1fr!important;}
+    .grid-3{grid-template-columns:1fr 1fr!important;}
+    .hide-mobile{display:none!important;}
+    .mobile-col{flex-direction:column!important;}
+    .mobile-full{width:100%!important;}
+    .sidebar-mobile{width:100%!important;max-height:160px;overflow-x:auto;overflow-y:hidden;flex-direction:row!important;flex-wrap:nowrap;}
+    .main-padding{padding:.8rem!important;}
+    .header-nav span{display:none!important;}
+  }
 `;
 
 // ─── SVG Icons ─────────────────────────────────────────────────────
@@ -100,10 +110,37 @@ const Icon = ({ name, size=16, color="currentColor", strokeWidth=1.75 }) => {
 };
 
 // ─── Logo SVG ──────────────────────────────────────────────────────
-const Logo = ({ size=28 }) => (
-  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="32" height="32" rx="8" fill={T.accent}/>
-    <path d="M16 7v18M10 13l6-6 6 6M10 19l6 6 6-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+const Logo = ({ size=36 }) => (
+  <svg width={size} height={size} viewBox="0 0 260 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Fondo cuadrado redondeado */}
+    <rect width="260" height="300" rx="52" fill="#1a2236"/>
+    {/* Columna vertebral — curva */}
+    <path d="M130 78 Q150 128 130 178 Q110 228 130 282" fill="none" stroke="white" strokeWidth="4.5" strokeLinecap="round"/>
+    {/* Vértebras */}
+    <line x1="112" y1="100" x2="148" y2="97"  stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="110" y1="118" x2="146" y2="116" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="109" y1="136" x2="145" y2="136" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="109" y1="154" x2="145" y2="155" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="110" y1="172" x2="146" y2="174" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="112" y1="190" x2="147" y2="193" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="115" y1="208" x2="148" y2="212" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="117" y1="226" x2="147" y2="230" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="119" y1="244" x2="146" y2="248" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="121" y1="262" x2="145" y2="266" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    {/* Birrete — ala */}
+    <polygon points="130,46 174,63 130,72 86,63" fill="#4a7cbf"/>
+    <polygon points="86,63 130,72 174,63 174,68 130,77 86,68" fill="#2a5298" opacity="0.7"/>
+    {/* Copa del birrete */}
+    <rect x="112" y="63" width="36" height="24" rx="7" fill="#2a5298"/>
+    {/* Botón */}
+    <circle cx="130" cy="51" r="6" fill="#2a5298"/>
+    {/* Cordón */}
+    <line x1="174" y1="63" x2="174" y2="78" stroke="#4a7cbf" strokeWidth="3" strokeLinecap="round"/>
+    {/* Borla */}
+    <circle cx="174" cy="83" r="5.5" fill="#4a7cbf"/>
+    <line x1="168" y1="86" x2="164" y2="101" stroke="#4a7cbf" strokeWidth="2.5" strokeLinecap="round"/>
+    <line x1="174" y1="88" x2="174" y2="103" stroke="#4a7cbf" strokeWidth="2.5" strokeLinecap="round"/>
+    <line x1="180" y1="86" x2="184" y2="101" stroke="#4a7cbf" strokeWidth="2.5" strokeLinecap="round"/>
   </svg>
 );
 
@@ -261,12 +298,12 @@ function CalendarView({events,onDayClick,selectedDate}){
 }
 
 // ─── Agenda ────────────────────────────────────────────────────────
-function AgendaModule(){
+function AgendaModule({syncSave}){
   const [events,setEvents]=useState(()=>load(SK.agenda)||[]);
   const [selectedDate,setSelectedDate]=useState(new Date().toISOString().slice(0,10));
   const [showAdd,setShowAdd]=useState(false);
   const [form,setForm]=useState({title:"",date:selectedDate,time:"09:00",duration:"60",patient:"",notes:""});
-  function persist(list){setEvents(list);save(SK.agenda,list);}
+  function persist(list){setEvents(list);if(typeof syncSave==='function')syncSave(SK.agenda,list);else save(SK.agenda,list);}
   function addEvent(){persist([...events,{id:uid(),...form}]);setShowAdd(false);setForm({title:"",date:selectedDate,time:"09:00",duration:"60",patient:"",notes:""});}
   const today2=new Date().toISOString().slice(0,10);
   const dayEvents=events.filter(e=>e.date===selectedDate).sort((a,b)=>a.time.localeCompare(b.time));
@@ -284,7 +321,7 @@ function AgendaModule(){
         <Btn onClick={()=>{setForm(p=>({...p,date:selectedDate}));setShowAdd(true);}} icon="plus" size="sm">Nueva cita</Btn>
       </div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem",alignItems:"start"}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:"1rem",alignItems:"start"}}>
       <CalendarView events={events} onDayClick={d=>{setSelectedDate(d);setForm(p=>({...p,date:d}));}} selectedDate={selectedDate}/>
       <div>
         <div style={{fontWeight:"600",fontSize:".82rem",color:T.text,marginBottom:".6rem",display:"flex",alignItems:"center",gap:".4rem"}}>
@@ -395,7 +432,7 @@ function PatientDetail({patient,templates,onBack,onUpdate}){
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
     <div style={{flex:1,overflowY:"auto"}}>
       {tab==="overview"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:".55rem"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:".45rem"}}>
           {[[`${(patient.sessions||[]).length}`,"Sesiones",T.accent],[`${(patient.examFiles||[]).length+(patient.orderFiles||[]).length}`,"Archivos","#7c3aed"],[patient.evalFicha?"Evaluado":"Pendiente","Estado",patient.evalFicha?T.green:T.amber]].map(([v,l,c])=><Card key={l} style={{textAlign:"center",padding:".8rem"}}><div style={{fontSize:"1.4rem",fontWeight:"700",color:c}}>{v}</div><div style={{fontSize:".72rem",color:T.textMuted,marginTop:".1rem"}}>{l}</div></Card>)}
         </div>
         {patient.notes&&<Card><div style={{fontSize:".72rem",fontWeight:"600",color:T.textMuted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:".3rem"}}>Notas</div><p style={{fontSize:".84rem",color:T.text,margin:0,lineHeight:1.65}}>{patient.notes}</p></Card>}
@@ -478,12 +515,12 @@ function PatientsModule({templates,syncSave}){
 }
 
 // ─── Research ─────────────────────────────────────────────────────
-function ResearchModule(){
+function ResearchModule({syncSave}){
   const [tab,setTab]=useState("ia");
   const [projects,setProjects]=useState(()=>load(SK.projects)||[]);const [showAdd,setShowAdd]=useState(false);const [newP,setNewP]=useState({title:"",description:""});
   const [summaries,setSummaries]=useState(()=>load('kinesio_summaries_v1')||[]);const [sInput,setSInput]=useState("");const [sLoading,setSLoading]=useState(false);const [sDeleting,setSDeleting]=useState(null);
-  function persistP(l){setProjects(l);save(SK.projects,l);}
-  async function addSummary(){if(!sInput.trim())return;setSLoading(true);let r="";await askClaude("Eres investigadora experta en kinesiología. Resume artículos científicos estructuradamente: objetivo, metodología, resultados, nivel de evidencia, aplicación clínica.",[{role:"user",content:`Resume: ${sInput}`}],c=>r=c);setSummaries(p=>{const n=[{id:uid(),query:sInput,result:r,date:new Date().toLocaleDateString()},...p];save('kinesio_summaries_v1',n);return n;});setSInput("");setSLoading(false);}
+  function persistP(l){setProjects(l);if(typeof syncSave==='function')syncSave(SK.projects,l);else save(SK.projects,l);}
+  async function addSummary(){if(!sInput.trim())return;setSLoading(true);let r="";await askClaude("Eres investigadora experta en kinesiología. Resume artículos científicos estructuradamente: objetivo, metodología, resultados, nivel de evidencia, aplicación clínica.",[{role:"user",content:`Resume: ${sInput}`}],c=>r=c);setSummaries(p=>{const n=[{id:uid(),query:sInput,result:r,date:new Date().toLocaleDateString()},...p];if(typeof syncSave==='function')syncSave('kinesio_summaries_v1',n);else save('kinesio_summaries_v1',n);return n;});setSInput("");setSLoading(false);}
   const tabs=[{id:"ia",label:"Investigación con IA"},{id:"projects",label:"Proyectos"},{id:"summaries",label:"Resúmenes"}];
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
@@ -734,14 +771,14 @@ function SubjectDetail({subject,onUpdate,onBack}){
 }
 
 // ─── Teaching Module ───────────────────────────────────────────────
-function TeachingModule(){
+function TeachingModule({syncSave}){
   const [tab,setTab]=useState("subjects");
   const [subjects,setSubjects]=useState(()=>load(SK.subjects)||[]);
   const [sel,setSel]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
   const [newName,setNewName]=useState("");
   const [newColor,setNewColor]=useState("#1e4d8c");
-  function persist(l){setSubjects(l);save(SK.subjects,l);}
+  function persist(l){setSubjects(l);if(typeof syncSave==='function')syncSave(SK.subjects,l);else save(SK.subjects,l);}
   function updateSubject(upd){const l=subjects.map(s=>s.id===upd.id?upd:s);persist(l);setSel(upd);}
 
   const tabs=[{id:"subjects",label:"Asignaturas"},{id:"rubrics",label:"IA Rúbricas"},{id:"ia",label:"IA Docencia"}];
@@ -804,7 +841,7 @@ function ClinicalModule({templates,onOpenTemplates,syncSave}){
   const tabs=[{id:"agenda",label:"Agenda"},{id:"patients",label:"Pacientes"},{id:"ia",label:"Asistente IA"},{id:"settings",label:"Ajustes"}];
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
-    {tab==="agenda"&&<AgendaModule/>}
+    {tab==="agenda"&&<AgendaModule syncSave={syncSave}/>}
     {tab==="patients"&&<PatientsModule templates={templates} syncSave={syncSave}/>}
     {tab==="ia"&&<div style={{flex:1}}><AIChat key="clin" system="Eres kinesióloga clínica con actualización constante en evidencia. Respondes con criterio clínico profesional. Orientas sobre diagnóstico diferencial, evaluación, protocolos y abordajes kinesiológicos." placeholder="Consulta clínica, protocolo, diagnóstico diferencial..." suggestions={["Protocolo evaluación dolor de hombro","¿Diferenciar tendinopatía de bursitis?","Abordaje kinesiológico post ACV","Criterios de alta rehabilitación rodilla"]}/></div>}
     {tab==="settings"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
@@ -912,10 +949,7 @@ function LoginScreen({ onLogin }) {
       <div style={{ background:"#ffffff", borderRadius:"12px", padding:"2.2rem", width:"100%", maxWidth:"380px", boxShadow:"0 4px 24px rgba(0,0,0,.09)", border:"1px solid #e5e7eb" }}>
         {/* Logo */}
         <div style={{ display:"flex", alignItems:"center", gap:".7rem", marginBottom:"1.8rem", justifyContent:"center" }}>
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="8" fill="#1e4d8c"/>
-            <path d="M16 7v18M10 13l6-6 6 6M10 19l6 6 6-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+  <Logo size={48}/>
           <div>
             <div style={{ fontWeight:"700", fontSize:"1.1rem", color:"#111827" }}>KinesioAI</div>
             <div style={{ fontSize:".72rem", color:"#6b7280" }}>Clínica · Docencia · Investigación</div>
@@ -990,7 +1024,7 @@ export default function App(){
   // Load all data from cloud on login
   async function loadCloudData(u) {
     setSyncing(true);
-    const keys = Object.values(SK);
+    const keys = [...Object.values(SK), 'kinesio_summaries_v1'];
     for (const k of keys) {
       const cloudVal = await cloudLoad(u.id, k);
       if (cloudVal !== null) {
@@ -1048,10 +1082,10 @@ export default function App(){
         </div>
       </header>
       <main style={{flex:1,padding:"1.2rem 1.5rem",maxWidth:"980px",width:"100%",margin:"0 auto",boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
-        <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"500px"}}>
+        <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"auto",background:T.surface,borderRadius:"8px",padding:"1rem"}}>
           {area==="clinical"&&<ClinicalModule templates={templates} onOpenTemplates={()=>setShowTpl(true)} syncSave={syncSave}/>}
-          {area==="research"&&<ResearchModule/>}
-          {area==="teaching"&&<TeachingModule/>}
+          {area==="research"&&<ResearchModule syncSave={syncSave}/>}
+          {area==="teaching"&&<TeachingModule syncSave={syncSave}/>}
         </div>
       </main>
       {showTpl&&<TemplateManager templates={templates} onSave={saveTpl} onClose={()=>setShowTpl(false)}/>}
