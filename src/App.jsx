@@ -1,679 +1,590 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 
 // ─── Storage ───────────────────────────────────────────────────────
-const SK = { patients: "kinesio_patients_v2", templates: "kinesio_templates_v2" };
-const load = (key) => { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch { return null; } };
-const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+const SK = { patients:"kinesio_patients_v3", templates:"kinesio_templates_v2", agenda:"kinesio_agenda_v1", subjects:"kinesio_subjects_v1", projects:"kinesio_projects_v1" };
+const load = k => { try { const r=localStorage.getItem(k); return r?JSON.parse(r):null; } catch { return null; } };
+const save = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch {} };
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
 
-// ─── Theme ─────────────────────────────────────────────────────────
+// ─── Theme: Graphite / Navy-Sky ────────────────────────────────────
 const T = {
-  teal: "#0d9488", tealL: "#14b8a6", tealD: "#0f766e",
-  sage: "#65a30d", sageL: "#84cc16",
-  amber: "#d97706",
-  blue: "#2563eb",
-  cream: "#f8f7f4", warm: "#f0ede6",
-  charcoal: "#1a2e2e", slate: "#2d4444", muted: "#6b8585",
-  border: "#d4e4e2", white: "#ffffff",
+  // Backgrounds
+  bg: "#f4f5f7",
+  surface: "#ffffff",
+  surfaceHover: "#f8f9fa",
+  sidebar: "#1a2236",
+  sidebarHover: "#243048",
+
+  // Text
+  text: "#111827",
+  textMuted: "#6b7280",
+  textLight: "#9ca3af",
+
+  // Accent — navy / sky
+  accent: "#1e4d8c",
+  accentL: "#4a7cbf",
+  accentD: "#153666",
+  accentBg: "#eef3fb",
+  accentBorder: "#b8cfe8",
+
+  // Neutrals
+  border: "#e5e7eb",
+  borderDark: "#d1d5db",
+  graphite: "#374151",
+  graphiteL: "#4b5563",
+
+  // Status
+  green: "#16a34a", greenBg: "#f0fdf4",
+  amber: "#d97706", amberBg: "#fffbeb",
   red: "#dc2626", redBg: "#fef2f2",
+  white: "#ffffff",
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────
-function fileToBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-}
-function isImage(name) { return /\.(png|jpg|jpeg|gif|webp)$/i.test(name); }
-function isPDF(name) { return /\.pdf$/i.test(name); }
-function getMediaType(name) {
-  if (/\.png$/i.test(name)) return "image/png";
-  if (/\.(jpg|jpeg)$/i.test(name)) return "image/jpeg";
-  if (/\.gif$/i.test(name)) return "image/gif";
-  if (/\.webp$/i.test(name)) return "image/webp";
-  return "application/pdf";
-}
+const FONT = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  *{font-family:'Inter','Aptos','Segoe UI',system-ui,sans-serif;box-sizing:border-box;}
+  body{margin:0;background:${T.bg};}
+  ::-webkit-scrollbar{width:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:99px;}
+  input,textarea,select{font-family:inherit;}
+`;
+
+// ─── SVG Icons ─────────────────────────────────────────────────────
+const Icon = ({ name, size=16, color="currentColor", strokeWidth=1.75 }) => {
+  const p = {
+    clinical: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z",
+    patients: "M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z",
+    agenda: "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5",
+    research: "M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5",
+    teaching: "M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5",
+    ai: "M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z",
+    search: "M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z",
+    plus: "M12 4.5v15m7.5-7.5h-15",
+    menu: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5",
+    close: "M6 18L18 6M6 6l12 12",
+    send: "M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5",
+    trash: "M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0",
+    edit: "M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10",
+    file: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z",
+    upload: "M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5",
+    check: "M4.5 12.75l6 6 9-13.5",
+    star: "M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z",
+    clock: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z",
+    link: "M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244",
+    settings: "M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z",
+    chevLeft: "M15.75 19.5L8.25 12l7.5-7.5",
+    chevRight: "M8.25 4.5l7.5 7.5-7.5 7.5",
+    folder: "M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z",
+  };
+  return <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"><path d={p[name]||""}/></svg>;
+};
+
+// ─── Logo SVG ──────────────────────────────────────────────────────
+const Logo = ({ size=28 }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="32" height="32" rx="8" fill={T.accent}/>
+    <path d="M16 7v18M10 13l6-6 6 6M10 19l6 6 6-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
 
 // ─── Markdown ──────────────────────────────────────────────────────
 function Md({ text }) {
   if (!text) return null;
   const html = text
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/^### (.+)$/gm, `<h3 style="color:#0f766e;font-size:.93rem;font-weight:700;margin:.9rem 0 .2rem">$1</h3>`)
-    .replace(/^## (.+)$/gm, `<h2 style="color:#0f766e;font-size:1.02rem;font-weight:800;margin:1rem 0 .3rem">$1</h2>`)
-    .replace(/^# (.+)$/gm, `<h1 style="color:#1a2e2e;font-size:1.1rem;font-weight:800;margin:1rem 0 .4rem">$1</h1>`)
-    .replace(/^- (.+)$/gm, `<li style="margin:.2rem 0;padding-left:.3rem">$1</li>`)
-    .replace(/(<li.*<\/li>\n?)+/g, m => `<ul style="padding-left:1.2rem;margin:.4rem 0">${m}</ul>`)
-    .replace(/\n\n/g, `</p><p style="margin:.45rem 0">`)
-    .replace(/\n/g, "<br/>");
-  return <div dangerouslySetInnerHTML={{ __html: `<p style="margin:.45rem 0">${html}</p>` }} style={{ fontSize: ".87rem", lineHeight: 1.75, color: "#1a2e2e" }} />;
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/\*(.+?)\*/g,"<em>$1</em>")
+    .replace(/^### (.+)$/gm,`<h3 style="color:${T.accentD};font-size:.9rem;font-weight:600;margin:.85rem 0 .2rem">$1</h3>`)
+    .replace(/^## (.+)$/gm,`<h2 style="color:${T.accentD};font-size:.98rem;font-weight:700;margin:.95rem 0 .28rem">$1</h2>`)
+    .replace(/^# (.+)$/gm,`<h1 style="color:${T.text};font-size:1.05rem;font-weight:700;margin:.95rem 0 .35rem">$1</h1>`)
+    .replace(/^- (.+)$/gm,`<li style="margin:.18rem 0">$1</li>`)
+    .replace(/(<li.*<\/li>\n?)+/g,m=>`<ul style="padding-left:1.1rem;margin:.38rem 0">${m}</ul>`)
+    .replace(/\n\n/g,`</p><p style="margin:.42rem 0">`).replace(/\n/g,"<br/>");
+  return <div dangerouslySetInnerHTML={{__html:`<p style="margin:.42rem 0">${html}</p>`}} style={{fontSize:".86rem",lineHeight:1.75,color:T.text}}/>;
 }
 
 // ─── Claude API ────────────────────────────────────────────────────
 async function askClaude(system, messages, onChunk) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1500, stream: true, system, messages }),
-  });
-  const reader = resp.body.getReader();
-  const dec = new TextDecoder();
-  let full = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    for (const line of dec.decode(value).split("\n")) {
-      if (line.startsWith("data: ")) {
-        try {
-          const d = JSON.parse(line.slice(6));
-          if (d.type === "content_block_delta" && d.delta?.text) { full += d.delta.text; onChunk(full); }
-        } catch {}
-      }
-    }
-  }
+  const resp = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,stream:true,system,messages})});
+  const reader=resp.body.getReader(); const dec=new TextDecoder(); let full="";
+  while(true){const{done,value}=await reader.read();if(done)break;for(const line of dec.decode(value).split("\n")){if(line.startsWith("data: ")){try{const d=JSON.parse(line.slice(6));if(d.type==="content_block_delta"&&d.delta?.text){full+=d.delta.text;onChunk(full);}}catch{}}}}
   return full;
 }
 
+// ─── File helpers ──────────────────────────────────────────────────
+const fileToBase64=f=>new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result);x.onerror=j;x.readAsDataURL(f);});
+const isImage=n=>/\.(png|jpg|jpeg|gif|webp)$/i.test(n);
+const isPDF=n=>/\.pdf$/i.test(n);
+const getMediaType=n=>/\.png$/i.test(n)?"image/png":/\.(jpg|jpeg)$/i.test(n)?"image/jpeg":"application/pdf";
+
+// ─── Primitives ────────────────────────────────────────────────────
+function Btn({onClick,children,variant="primary",size="md",disabled=false,icon,full=false}){
+  const S={
+    primary:{bg:T.accent,color:"#fff",border:"none"},
+    secondary:{bg:T.white,color:T.graphite,border:`1px solid ${T.border}`},
+    ghost:{bg:"transparent",color:T.accent,border:`1px solid ${T.accentBorder}`},
+    danger:{bg:T.redBg,color:T.red,border:"1px solid #fecaca"},
+    subtle:{bg:T.bg,color:T.graphite,border:`1px solid ${T.border}`},
+  };
+  const P={sm:".28rem .6rem",md:".5rem 1rem",lg:".7rem 1.3rem"};
+  const FS={sm:".75rem",md:".84rem",lg:".9rem"};
+  return <button onClick={onClick} disabled={disabled} style={{background:S[variant].bg,color:S[variant].color,border:S[variant].border,padding:P[size],borderRadius:"6px",fontWeight:"500",fontSize:FS[size],cursor:disabled?"not-allowed":"pointer",display:"inline-flex",alignItems:"center",gap:".35rem",opacity:disabled?.55:1,width:full?"100%":"auto",justifyContent:full?"center":"flex-start",transition:"opacity .15s,background .15s"}} onMouseEnter={e=>{if(!disabled&&variant==="primary")e.currentTarget.style.background=T.accentD;}} onMouseLeave={e=>{if(variant==="primary")e.currentTarget.style.background=T.accent;}}>
+    {icon&&<Icon name={icon} size={size==="sm"?12:14} color={S[variant].color}/>}{children}
+  </button>;
+}
+
+function Input({value,onChange,placeholder,type="text",rows,onKeyDown,onFocus,onBlur}){
+  const s={width:"100%",padding:".52rem .8rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".85rem",outline:"none",color:T.text,background:T.white,transition:"border-color .15s"};
+  if(rows) return <textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{...s,resize:"vertical",fontFamily:"inherit",lineHeight:1.65}} onFocus={e=>{e.target.style.borderColor=T.accent;onFocus&&onFocus(e);}} onBlur={e=>{e.target.style.borderColor=T.border;onBlur&&onBlur(e);}}/>;
+  return <input type={type} value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown} style={s} onFocus={e=>{e.target.style.borderColor=T.accent;onFocus&&onFocus(e);}} onBlur={e=>{e.target.style.borderColor=T.border;onBlur&&onBlur(e);}}/>;
+}
+
+function Label({children}){return <label style={{fontSize:".75rem",fontWeight:"600",color:T.textMuted,display:"block",marginBottom:".25rem",textTransform:"uppercase",letterSpacing:".03em"}}>{children}</label>;}
+
+function Card({children,style={}}){return <div style={{background:T.surface,borderRadius:"8px",padding:"1rem",border:`1px solid ${T.border}`,...style}}>{children}</div>;}
+
+function SubTab({tabs,active,onChange}){
+  return <div style={{display:"flex",borderBottom:`1px solid ${T.border}`,marginBottom:"1rem",gap:"0"}}>
+    {tabs.map(t=><button key={t.id} onClick={()=>onChange(t.id)} style={{padding:".48rem .85rem",border:"none",background:"none",fontWeight:active===t.id?"600":"400",fontSize:".8rem",color:active===t.id?T.accent:T.textMuted,borderBottom:active===t.id?`2px solid ${T.accent}`:"2px solid transparent",marginBottom:"-1px",cursor:"pointer",transition:"color .15s"}}>{t.label}</button>)}
+  </div>;
+}
+
+function Modal({title,onClose,children,width="560px"}){
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"1rem"}}>
+    <div style={{background:T.surface,borderRadius:"10px",padding:"1.5rem",width:"100%",maxWidth:width,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.1rem"}}>
+        <div style={{fontWeight:"600",fontSize:".95rem",color:T.text}}>{title}</div>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:T.textMuted,display:"flex",padding:".2rem"}}><Icon name="close" size={16}/></button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+
+function FileUpload({label,files,onAdd,onRemove,accept="*"}){
+  const ref=useRef();
+  async function handle(e){for(const f of Array.from(e.target.files)){const b=await fileToBase64(f);onAdd({id:uid(),name:f.name,type:f.type||getMediaType(f.name),data:b,date:new Date().toISOString()});}e.target.value="";}
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:".45rem",marginBottom:".4rem"}}>
+      <Label>{label}</Label>
+      <button onClick={()=>ref.current.click()} style={{display:"flex",alignItems:"center",gap:".28rem",padding:".22rem .6rem",borderRadius:"5px",border:`1px solid ${T.accentBorder}`,background:T.accentBg,color:T.accent,fontSize:".72rem",fontWeight:"600",cursor:"pointer"}}><Icon name="upload" size={11} color={T.accent}/>Subir</button>
+      <input ref={ref} type="file" accept={accept} multiple onChange={handle} style={{display:"none"}}/>
+    </div>
+    {files.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:".3rem"}}>{files.map(f=><div key={f.id} style={{display:"flex",alignItems:"center",gap:".3rem",background:T.bg,borderRadius:"5px",padding:".22rem .55rem",border:`1px solid ${T.border}`}}><Icon name="file" size={11} color={T.textMuted}/><a href={f.data} download={f.name} style={{fontSize:".73rem",color:T.accent,textDecoration:"none",maxWidth:"110px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={f.name}>{f.name}</a><button onClick={()=>onRemove(f.id)} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:0,display:"flex"}}><Icon name="close" size={10}/></button></div>)}</div>}
+  </div>;
+}
+
 // ─── AI Chat ───────────────────────────────────────────────────────
-function AIChat({ system, placeholder, suggestions = [], extraContent = [] }) {
-  const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const endRef = useRef(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
-
-  async function send(text) {
-    const q = text || input.trim(); if (!q) return;
-    setInput("");
-    const history = msgs.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
-    const userContent = extraContent.length > 0 && msgs.length === 0
-      ? [...extraContent, { type: "text", text: q }] : q;
-    setMsgs(p => [...p, { role: "user", text: q }, { role: "ai", text: "" }]);
-    setLoading(true);
-    try {
-      await askClaude(system, [...history, { role: "user", content: userContent }], chunk => {
-        setMsgs(p => { const c = [...p]; c[c.length - 1] = { role: "ai", text: chunk }; return c; });
-      });
-    } catch {
-      setMsgs(p => { const c = [...p]; c[c.length - 1] = { role: "ai", text: "❌ Error de conexión. Intenta de nuevo." }; return c; });
-    }
+function AIChat({system,placeholder,suggestions=[],extraContent=[]}){
+  const [input,setInput]=useState("");const [msgs,setMsgs]=useState([]);const [loading,setLoading]=useState(false);const endRef=useRef(null);
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
+  async function send(text){
+    const q=text||input.trim();if(!q)return;setInput("");
+    const history=msgs.map(m=>({role:m.role==="user"?"user":"assistant",content:m.text}));
+    const uc=extraContent.length>0&&msgs.length===0?[...extraContent,{type:"text",text:q}]:q;
+    setMsgs(p=>[...p,{role:"user",text:q},{role:"ai",text:""}]);setLoading(true);
+    try{await askClaude(system,[...history,{role:"user",content:uc}],c=>{setMsgs(p=>{const x=[...p];x[x.length-1]={role:"ai",text:c};return x;});});}
+    catch{setMsgs(p=>{const x=[...p];x[x.length-1]={role:"ai",text:"Error de conexión."};return x;});}
     setLoading(false);
   }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: ".75rem" }}>
-      {msgs.length === 0 && suggestions.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: ".4rem" }}>
-          {suggestions.map((s, i) => (
-            <button key={i} onClick={() => send(s)} style={{ background: T.warm, border: `1px solid ${T.border}`, borderRadius: "999px", padding: ".35rem .8rem", fontSize: ".78rem", color: T.slate, cursor: "pointer" }}>{s}</button>
-          ))}
+  return <div style={{display:"flex",flexDirection:"column",height:"100%",gap:".7rem"}}>
+    {msgs.length===0&&suggestions.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:".38rem"}}>{suggestions.map((s,i)=><button key={i} onClick={()=>send(s)} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:"5px",padding:".32rem .75rem",fontSize:".76rem",color:T.graphite,cursor:"pointer",transition:"border-color .15s"}} onMouseEnter={e=>e.target.style.borderColor=T.accent} onMouseLeave={e=>e.target.style.borderColor=T.border}>{s}</button>)}</div>}
+    <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:".6rem",paddingRight:".25rem"}}>
+      {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",gap:".45rem"}}>
+        {m.role==="ai"&&<div style={{width:26,height:26,borderRadius:"50%",background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:".1rem"}}><Icon name="ai" size={13} color="white"/></div>}
+        <div style={{maxWidth:"82%",padding:".6rem .88rem",borderRadius:"8px",background:m.role==="user"?T.graphite:T.surface,color:m.role==="user"?"#fff":T.text,boxShadow:"0 1px 3px rgba(0,0,0,.07)",border:m.role==="ai"?`1px solid ${T.border}`:"none",fontSize:".86rem"}}>
+          {m.role==="user"?m.text:<Md text={m.text||"▋"}/>}
         </div>
-      )}
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: ".65rem", paddingRight: ".3rem" }}>
-        {msgs.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            {m.role === "ai" && <div style={{ width: 24, height: 24, borderRadius: "50%", background: `linear-gradient(135deg,${T.teal},${T.sageL})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: ".65rem", marginRight: ".4rem", flexShrink: 0, marginTop: ".2rem" }}>🤖</div>}
-            <div style={{ maxWidth: "83%", padding: ".62rem .9rem", borderRadius: m.role === "user" ? "15px 15px 4px 15px" : "15px 15px 15px 4px", background: m.role === "user" ? `linear-gradient(135deg,${T.teal},${T.tealD})` : T.white, color: m.role === "user" ? "#fff" : T.charcoal, boxShadow: "0 2px 8px rgba(0,0,0,.06)", border: m.role === "ai" ? `1px solid ${T.border}` : "none" }}>
-              {m.role === "user" ? <span style={{ fontSize: ".87rem" }}>{m.text}</span> : <Md text={m.text || "▋"} />}
-            </div>
+      </div>)}
+      <div ref={endRef}/>
+    </div>
+    <div style={{display:"flex",gap:".45rem",borderTop:`1px solid ${T.border}`,paddingTop:".7rem"}}>
+      <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder={placeholder} disabled={loading} style={{flex:1,padding:".6rem .85rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".86rem",outline:"none",color:T.text}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+      <button onClick={()=>send()} disabled={loading||!input.trim()} style={{padding:".6rem .95rem",borderRadius:"6px",border:"none",background:loading?T.textLight:T.accent,color:"#fff",cursor:loading?"not-allowed":"pointer",display:"flex",alignItems:"center"}}><Icon name="send" size={14} color="white"/></button>
+    </div>
+  </div>;
+}
+
+// ─── Calendar ──────────────────────────────────────────────────────
+function CalendarView({events,onDayClick,selectedDate}){
+  const [current,setCurrent]=useState(new Date());
+  const year=current.getFullYear(),month=current.getMonth();
+  const firstDay=new Date(year,month,1).getDay();
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  const today=new Date().toISOString().slice(0,10);
+  const DAYS=["Do","Lu","Ma","Mi","Ju","Vi","Sá"];
+  const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const eventsByDay=useMemo(()=>{const m={};events.forEach(e=>{if(!m[e.date])m[e.date]=[];m[e.date].push(e);});return m;},[events]);
+  const cells=[];
+  for(let i=0;i<firstDay;i++)cells.push(null);
+  for(let d=1;d<=daysInMonth;d++)cells.push(d);
+  return <div style={{background:T.surface,borderRadius:"8px",border:`1px solid ${T.border}`,overflow:"hidden"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:".75rem 1rem",borderBottom:`1px solid ${T.border}`}}>
+      <button onClick={()=>setCurrent(new Date(year,month-1,1))} style={{background:"none",border:"none",cursor:"pointer",color:T.textMuted,display:"flex",padding:".2rem"}}><Icon name="chevLeft" size={16}/></button>
+      <div style={{fontWeight:"600",fontSize:".88rem",color:T.text}}>{MONTHS[month]} {year}</div>
+      <button onClick={()=>setCurrent(new Date(year,month+1,1))} style={{background:"none",border:"none",cursor:"pointer",color:T.textMuted,display:"flex",padding:".2rem"}}><Icon name="chevRight" size={16}/></button>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",padding:".5rem .75rem .75rem"}}>
+      {DAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:".7rem",fontWeight:"600",color:T.textLight,padding:".3rem 0"}}>{d}</div>)}
+      {cells.map((d,i)=>{
+        if(!d)return <div key={`e${i}`}/>;
+        const dateStr=`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+        const hasEvents=eventsByDay[dateStr]?.length>0;
+        const isToday=dateStr===today;
+        const isSelected=dateStr===selectedDate;
+        return <div key={d} onClick={()=>onDayClick(dateStr)} style={{textAlign:"center",padding:".28rem",cursor:"pointer",borderRadius:"6px",background:isSelected?T.accent:isToday?T.accentBg:"transparent",color:isSelected?"white":isToday?T.accent:T.text,fontSize:".82rem",fontWeight:isToday||isSelected?"600":"400",position:"relative",transition:"background .1s"}} onMouseEnter={e=>{if(!isSelected&&!isToday)e.currentTarget.style.background=T.bg;}} onMouseLeave={e=>{if(!isSelected&&!isToday)e.currentTarget.style.background="transparent";}}>
+          {d}
+          {hasEvents&&<div style={{width:4,height:4,borderRadius:"50%",background:isSelected?"rgba(255,255,255,.8)":T.accent,margin:"1px auto 0"}}/>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ─── Agenda ────────────────────────────────────────────────────────
+function AgendaModule(){
+  const [events,setEvents]=useState(()=>load(SK.agenda)||[]);
+  const [selectedDate,setSelectedDate]=useState(new Date().toISOString().slice(0,10));
+  const [showAdd,setShowAdd]=useState(false);
+  const [form,setForm]=useState({title:"",date:selectedDate,time:"09:00",duration:"60",patient:"",notes:""});
+  function persist(list){setEvents(list);save(SK.agenda,list);}
+  function addEvent(){persist([...events,{id:uid(),...form}]);setShowAdd(false);setForm({title:"",date:selectedDate,time:"09:00",duration:"60",patient:"",notes:""});}
+  const dayEvents=events.filter(e=>e.date===selectedDate).sort((a,b)=>a.time.localeCompare(b.time));
+  const today=new Date().toISOString().slice(0,10);
+  return <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{fontWeight:"600",color:T.text,fontSize:".9rem"}}>Agenda</div>
+      <div style={{display:"flex",gap:".45rem"}}>
+        <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:".3rem",padding:".38rem .75rem",borderRadius:"6px",border:`1px solid ${T.border}`,background:T.surface,color:T.graphite,fontSize:".76rem",fontWeight:"500",textDecoration:"none"}}><Icon name="link" size={12} color={T.textMuted}/>Google Calendar</a>
+        <Btn onClick={()=>{setForm(p=>({...p,date:selectedDate}));setShowAdd(true);}} icon="plus" size="sm">Nueva cita</Btn>
+      </div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem",alignItems:"start"}}>
+      <CalendarView events={events} onDayClick={d=>{setSelectedDate(d);setForm(p=>({...p,date:d}));}} selectedDate={selectedDate}/>
+      <div>
+        <div style={{fontWeight:"600",fontSize:".82rem",color:T.text,marginBottom:".6rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+          <Icon name="clock" size={13} color={T.accent}/>
+          {selectedDate===today?"Hoy":selectedDate}
+          <span style={{marginLeft:"auto",fontSize:".74rem",color:T.textMuted,fontWeight:"400"}}>{dayEvents.length} cita{dayEvents.length!==1?"s":""}</span>
+        </div>
+        {dayEvents.length===0?<div style={{color:T.textLight,fontSize:".82rem",padding:"1.5rem",textAlign:"center",background:T.bg,borderRadius:"8px",border:`1px dashed ${T.border}`}}>Sin citas este día</div>:
+          <div style={{display:"flex",flexDirection:"column",gap:".4rem"}}>
+            {dayEvents.map(e=><div key={e.id} style={{display:"flex",gap:".6rem",padding:".6rem .75rem",borderRadius:"7px",background:T.accentBg,border:`1px solid ${T.accentBorder}`,alignItems:"flex-start"}}>
+              <div style={{fontWeight:"600",color:T.accent,fontSize:".78rem",minWidth:"38px",marginTop:".05rem"}}>{e.time}</div>
+              <div style={{flex:1}}><div style={{fontWeight:"500",fontSize:".84rem",color:T.text}}>{e.title}</div>{e.patient&&<div style={{fontSize:".74rem",color:T.textMuted,marginTop:".1rem"}}>{e.patient} · {e.duration} min</div>}</div>
+              <button onClick={()=>persist(events.filter(x=>x.id!==e.id))} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:0}}><Icon name="trash" size={13}/></button>
+            </div>)}
           </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-      <div style={{ display: "flex", gap: ".5rem" }}>
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()} placeholder={placeholder} disabled={loading}
-          style={{ flex: 1, padding: ".68rem .9rem", borderRadius: "11px", border: `1.5px solid ${T.border}`, fontSize: ".87rem", outline: "none", background: T.white, color: T.charcoal }}
-          onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-        <button onClick={() => send()} disabled={loading || !input.trim()} style={{ padding: ".68rem 1.1rem", borderRadius: "11px", border: "none", background: loading ? T.muted : `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "#fff", fontWeight: "700", cursor: loading ? "not-allowed" : "pointer" }}>
-          {loading ? "···" : "→"}
-        </button>
+        }
       </div>
     </div>
-  );
+    {showAdd&&<Card>
+      <div style={{fontWeight:"600",fontSize:".86rem",marginBottom:".8rem",color:T.text}}>Nueva cita — {form.date}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:".6rem"}}>
+        {[["Título *","title","text"],["Paciente","patient","text"],["Fecha","date","date"],["Hora","time","time"]].map(([l,k,t])=><div key={k}><Label>{l}</Label><Input type={t} value={form[k]} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))}/></div>)}
+        <div><Label>Duración (min)</Label><select value={form.duration} onChange={e=>setForm(p=>({...p,duration:e.target.value}))} style={{width:"100%",padding:".52rem .8rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".85rem",color:T.text}}>{["30","45","60","90","120"].map(d=><option key={d}>{d}</option>)}</select></div>
+        <div><Label>Notas</Label><Input value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))}/></div>
+      </div>
+      <div style={{display:"flex",gap:".45rem",justifyContent:"flex-end",marginTop:".8rem"}}><Btn onClick={()=>setShowAdd(false)} variant="secondary" size="sm">Cancelar</Btn><Btn onClick={addEvent} disabled={!form.title||!form.date} size="sm" icon="check">Guardar cita</Btn></div>
+    </Card>}
+  </div>;
 }
 
-// ─── File Upload ───────────────────────────────────────────────────
-function FileUpload({ label, files, onAdd, onRemove, accept = "*" }) {
-  const ref = useRef();
-  async function handle(e) {
-    for (const file of Array.from(e.target.files)) {
-      const b64 = await fileToBase64(file);
-      onAdd({ id: uid(), name: file.name, type: file.type || getMediaType(file.name), data: b64, date: new Date().toISOString() });
-    }
-    e.target.value = "";
-  }
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".45rem" }}>
-        <span style={{ fontSize: ".81rem", fontWeight: "700", color: T.slate }}>{label}</span>
-        <button onClick={() => ref.current.click()} style={{ padding: ".28rem .7rem", borderRadius: "7px", border: `1px solid ${T.teal}`, background: "transparent", color: T.teal, fontSize: ".75rem", fontWeight: "700", cursor: "pointer" }}>+ Subir</button>
-        <input ref={ref} type="file" accept={accept} multiple onChange={handle} style={{ display: "none" }} />
-      </div>
-      {files.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
-          {files.map(f => (
-            <div key={f.id} style={{ display: "flex", alignItems: "center", gap: ".35rem", background: T.warm, borderRadius: "7px", padding: ".28rem .6rem", border: `1px solid ${T.border}` }}>
-              <span style={{ fontSize: ".75rem" }}>{isImage(f.name) ? "🖼️" : isPDF(f.name) ? "📄" : "📎"}</span>
-              <a href={f.data} download={f.name} style={{ fontSize: ".76rem", color: T.teal, textDecoration: "none", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.name}>{f.name}</a>
-              <button onClick={() => onRemove(f.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: ".72rem", padding: 0 }}>✕</button>
-            </div>
-          ))}
-        </div>
-      )}
+// ─── Templates ────────────────────────────────────────────────────
+function TemplateManager({templates,onSave,onClose}){
+  const [e,setE]=useState(templates.eval||"");const [s,setS]=useState(templates.session||"");
+  return <Modal title="Formatos de Fichas" onClose={onClose} width="680px">
+    <p style={{fontSize:".82rem",color:T.textMuted,marginBottom:"1rem"}}>La IA usará estos formatos al generar fichas automáticamente.</p>
+    <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      <div><Label>Formato Ficha de Evaluación</Label><textarea value={e} onChange={x=>setE(x.target.value)} rows={9} placeholder={"FICHA DE EVALUACIÓN KINESIOLÓGICA\n\nI. DATOS DEL PACIENTE\n- Nombre:\n- Edad:\n\nII. ANAMNESIS\n...\n\nIII. EXAMEN FÍSICO\n..."} style={{width:"100%",padding:".7rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".8rem",resize:"vertical",fontFamily:"monospace",lineHeight:1.6}}/></div>
+      <div><Label>Formato Ficha de Sesión</Label><textarea value={s} onChange={x=>setS(x.target.value)} rows={7} placeholder={"FICHA DE ATENCIÓN\n\nFecha:\nSesión N°:\n\nEstado inicial:\nTécnicas:\nRespuesta:\nPróxima sesión:"} style={{width:"100%",padding:".7rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".8rem",resize:"vertical",fontFamily:"monospace",lineHeight:1.6}}/></div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:".45rem"}}><Btn onClick={onClose} variant="secondary">Cancelar</Btn><Btn onClick={()=>{onSave({eval:e,session:s});onClose();}} icon="check">Guardar</Btn></div>
     </div>
-  );
+  </Modal>;
 }
 
-// ─── Modal ─────────────────────────────────────────────────────────
-function Modal({ title, onClose, children, width = "580px" }) {
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-      <div style={{ background: T.white, borderRadius: "18px", padding: "1.6rem", width: "100%", maxWidth: width, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,.22)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.2rem" }}>
-          <div style={{ fontWeight: "800", fontSize: "1.05rem", color: T.charcoal }}>{title}</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "1.2rem", cursor: "pointer", color: T.muted }}>✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-// ─── Template Manager ──────────────────────────────────────────────
-function TemplateManager({ templates, onSave, onClose }) {
-  const [evalTpl, setEvalTpl] = useState(templates.eval || "");
-  const [sessTpl, setSessTpl] = useState(templates.session || "");
-  return (
-    <Modal title="📋 Mis Formatos / Plantillas" onClose={onClose} width="720px">
-      <p style={{ fontSize: ".82rem", color: T.muted, marginBottom: "1rem" }}>Pega aquí tus formatos. La IA los usará para estructurar las fichas automáticamente cuando ingreses datos de evaluación o sesión.</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
-        <div>
-          <label style={{ fontSize: ".84rem", fontWeight: "700", color: T.slate, display: "block", marginBottom: ".4rem" }}>📋 Formato de Ficha de Evaluación Kinesiológica</label>
-          <textarea value={evalTpl} onChange={e => setEvalTpl(e.target.value)} rows={11}
-            placeholder={"Pega aquí tu formato de evaluación. Ejemplo:\n\nFICHA DE EVALUACIÓN KINESIOLÓGICA\n\nI. DATOS DEL PACIENTE\n- Nombre:\n- Edad:\n- Diagnóstico médico:\n\nII. ANAMNESIS\n- Motivo de consulta:\n- Historia del dolor:\n- EVA reposo / movimiento:\n\nIII. EXAMEN FÍSICO\n- Inspección:\n- Palpación:\n- Rango articular:\n- Tests especiales:\n\nIV. DIAGNÓSTICO KINESIOLÓGICO\n\nV. OBJETIVOS\n\nVI. PLAN DE TRATAMIENTO"}
-            style={{ width: "100%", padding: ".75rem", borderRadius: "10px", border: `1.5px solid ${T.border}`, fontSize: ".82rem", resize: "vertical", fontFamily: "monospace", boxSizing: "border-box", color: T.charcoal, lineHeight: 1.6 }}
-            onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-        </div>
-        <div>
-          <label style={{ fontSize: ".84rem", fontWeight: "700", color: T.slate, display: "block", marginBottom: ".4rem" }}>📝 Formato de Ficha de Atención / Sesión</label>
-          <textarea value={sessTpl} onChange={e => setSessTpl(e.target.value)} rows={9}
-            placeholder={"Pega aquí tu formato de sesión. Ejemplo:\n\nFICHA DE ATENCIÓN KINESIOLÓGICA\n\nFecha:\nSesión N°:\nPaciente:\n\nEstado al inicio (EVA, observaciones):\n\nTécnicas aplicadas:\n1.\n2.\n\nRespuesta del paciente:\n\nObjetivos próxima sesión:\n\nFirma:"}
-            style={{ width: "100%", padding: ".75rem", borderRadius: "10px", border: `1.5px solid ${T.border}`, fontSize: ".82rem", resize: "vertical", fontFamily: "monospace", boxSizing: "border-box", color: T.charcoal, lineHeight: 1.6 }}
-            onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: ".6rem" }}>
-          <button onClick={onClose} style={{ padding: ".58rem 1.1rem", borderRadius: "9px", border: `1px solid ${T.border}`, background: "white", color: T.muted, cursor: "pointer", fontWeight: "600" }}>Cancelar</button>
-          <button onClick={() => { onSave({ eval: evalTpl, session: sessTpl }); onClose(); }} style={{ padding: ".58rem 1.3rem", borderRadius: "9px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer" }}>💾 Guardar formatos</button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Generate Ficha Modal ──────────────────────────────────────────
-function GenerateFicha({ patient, type, template, onClose, onSave }) {
-  const [rawData, setRawData] = useState("");
-  const [files, setFiles] = useState([]);
-  const [result, setResult] = useState("");
-  const [loading, setLoading] = useState(false);
-  const hasTemplate = template && template.trim().length > 10;
-
-  async function generate() {
-    setLoading(true); setResult("");
-    const system = `Eres una kinesióloga experta. Genera fichas clínicas profesionales, completas, basadas en evidencia. Sigue EXACTAMENTE el formato indicado. Completa TODOS los campos con la información disponible. Si falta info, escribe lo que puedas inferir y marca como [a confirmar]. Usa lenguaje técnico profesional.`;
-    let userContent = [];
-    for (const f of files) {
-      if (isImage(f.name)) userContent.push({ type: "image", source: { type: "base64", media_type: f.type, data: f.data.split(",")[1] } });
-      else if (isPDF(f.name)) userContent.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data.split(",")[1] } });
-    }
-    const prompt = type === "eval"
-      ? `Paciente: ${patient.name}, ${patient.age} años. Diagnóstico médico: ${patient.diagnosis}. Notas: ${patient.notes}\n\nDATOS RECOGIDOS EN EVALUACIÓN (anamnesis + examen físico):\n${rawData}\n\n${hasTemplate ? `FORMATO A COMPLETAR - respeta EXACTAMENTE esta estructura:\n${template}` : "Genera una ficha de evaluación kinesiológica completa y profesional con: datos, anamnesis, examen físico, diagnóstico kinesiológico, objetivos y plan."}`
-      : `Paciente: ${patient.name}, ${patient.age} años. Diagnóstico: ${patient.diagnosis}. Sesión N°${(patient.sessions || []).length + 1}\n\nDATOS DE LA SESIÓN:\n${rawData}\n\n${hasTemplate ? `FORMATO A COMPLETAR - respeta EXACTAMENTE esta estructura:\n${template}` : "Genera una ficha de atención kinesiológica profesional completa."}`;
-    userContent.push({ type: "text", text: prompt });
-    await askClaude(system, [{ role: "user", content: userContent }], c => setResult(c));
+// ─── Generate Ficha ────────────────────────────────────────────────
+function GenerateFicha({patient,type,template,onClose,onSave}){
+  const [raw,setRaw]=useState("");const [files,setFiles]=useState([]);const [result,setResult]=useState("");const [loading,setLoading]=useState(false);
+  const hasT=template&&template.trim().length>10;
+  async function generate(){
+    setLoading(true);setResult("");
+    let uc=[];
+    for(const f of files){if(isImage(f.name))uc.push({type:"image",source:{type:"base64",media_type:f.type,data:f.data.split(",")[1]}});else if(isPDF(f.name))uc.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:f.data.split(",")[1]}});}
+    const prompt=type==="eval"
+      ?`Paciente: ${patient.name}, ${patient.age}a. Dx: ${patient.diagnosis}. Notas: ${patient.notes}\n\nDATOS EVALUACIÓN:\n${raw}\n\n${hasT?`FORMATO:\n${template}`:"Genera ficha de evaluación kinesiológica completa."}`
+      :`Paciente: ${patient.name}, ${patient.age}a. Dx: ${patient.diagnosis}. Sesión N°${(patient.sessions||[]).length+1}\n\nDATOS SESIÓN:\n${raw}\n\n${hasT?`FORMATO:\n${template}`:"Genera ficha de atención kinesiológica completa."}`;
+    uc.push({type:"text",text:prompt});
+    await askClaude("Eres kinesióloga experta. Genera fichas clínicas profesionales y completas. Sigue EXACTAMENTE el formato indicado.",[{role:"user",content:uc}],c=>setResult(c));
     setLoading(false);
   }
-
-  return (
-    <Modal title={type === "eval" ? "📋 Generar Ficha de Evaluación" : "📋 Generar Ficha de Sesión"} onClose={onClose} width="700px">
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        {!hasTemplate && (
-          <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "9px", padding: ".65rem .9rem", fontSize: ".8rem", color: "#92400e" }}>
-            ⚠️ No tienes formato guardado. Se usará un formato estándar. Configura tus formatos en "📋 Mis Formatos" (arriba a la derecha).
-          </div>
-        )}
-        <div>
-          <label style={{ fontSize: ".82rem", fontWeight: "700", color: T.slate, display: "block", marginBottom: ".4rem" }}>
-            {type === "eval" ? "Datos de anamnesis y examen físico:" : "Datos de la sesión:"}
-          </label>
-          <textarea value={rawData} onChange={e => setRawData(e.target.value)} rows={8}
-            placeholder={type === "eval"
-              ? "Escribe o pega tus notas tal como las tomaste. No necesitas redactarlas, escríbelas en bruto:\n\nEj: pcte 35a M, dolor hombro der 6/10 desde hace 3 sem post esfuerzo, EVA reposo 3/10 movimiento 7/10. Limitación ABD 100°, RE 60°. Arco doloroso 80-120°. Neer +, Hawkins +. Sin irradiación. Duerme mal por el dolor..."
-              : "Ej: pcte llega 4/10 dolor. Mejor que semana pasada. Se aplicó US 3MHz 5min, TENS 80Hz 20min, movilización glenohumeral grado III. Ejercicios RMS. Buena tolerancia. Al finalizar 2/10. Refiere que hizo ejercicios en casa todos los días."}
-            style={{ width: "100%", padding: ".7rem", borderRadius: "10px", border: `1.5px solid ${T.border}`, fontSize: ".84rem", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.65 }}
-            onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-        </div>
-        <FileUpload label="Adjuntar exámenes / documentos:" files={files}
-          onAdd={f => setFiles(p => [...p, f])} onRemove={id => setFiles(p => p.filter(x => x.id !== id))} accept="image/*,.pdf" />
-        <button onClick={generate} disabled={loading || !rawData.trim()} style={{ padding: ".72rem", borderRadius: "11px", border: "none", background: loading ? T.muted : `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: loading ? "not-allowed" : "pointer", fontSize: ".9rem" }}>
-          {loading ? "⏳ Generando ficha..." : "✨ Generar ficha automáticamente"}
-        </button>
-        {result && (
-          <>
-            <div style={{ background: T.warm, borderRadius: "12px", padding: "1rem", maxHeight: "300px", overflowY: "auto", border: `1px solid ${T.border}` }}>
-              <Md text={result} />
-            </div>
-            <div style={{ display: "flex", gap: ".6rem", justifyContent: "flex-end" }}>
-              <button onClick={onClose} style={{ padding: ".58rem 1rem", borderRadius: "9px", border: `1px solid ${T.border}`, background: "white", color: T.muted, cursor: "pointer" }}>Cancelar</button>
-              <button onClick={() => { onSave(result, files); onClose(); }} style={{ padding: ".58rem 1.3rem", borderRadius: "9px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer" }}>💾 Guardar en ficha</button>
-            </div>
-          </>
-        )}
-      </div>
-    </Modal>
-  );
+  return <Modal title={type==="eval"?"Generar Ficha de Evaluación":"Generar Ficha de Sesión"} onClose={onClose} width="660px">
+    <div style={{display:"flex",flexDirection:"column",gap:".9rem"}}>
+      {!hasT&&<div style={{background:T.amberBg,border:"1px solid #fcd34d",borderRadius:"6px",padding:".6rem .85rem",fontSize:".78rem",color:T.amber}}>Sin formato configurado — se usará formato estándar. Configura en Ajustes.</div>}
+      <div><Label>{type==="eval"?"Datos de anamnesis y examen físico":"Datos de la sesión"}</Label><Input value={raw} onChange={e=>setRaw(e.target.value)} placeholder={type==="eval"?"Escribe tus notas en bruto:\nEj: pcte 35a, dolor hombro der 6/10, 3 sem, EVA 3/10 rep 7/10 mov, ABD 100°, Neer +, Hawkins +...":"Ej: pcte 4/10 dolor. US 3MHz 5min, TENS 80Hz, moviliz glenohumeral grado III, buena tolerancia, sale 2/10..."} rows={7}/></div>
+      <FileUpload label="Adjuntar exámenes / documentos" files={files} onAdd={f=>setFiles(p=>[...p,f])} onRemove={id=>setFiles(p=>p.filter(x=>x.id!==id))} accept="image/*,.pdf"/>
+      <Btn onClick={generate} disabled={loading||!raw.trim()} icon="ai" full>{loading?"Generando ficha...":"Generar ficha automáticamente"}</Btn>
+      {result&&<><div style={{background:T.bg,borderRadius:"7px",padding:".9rem",maxHeight:"260px",overflowY:"auto",border:`1px solid ${T.border}`}}><Md text={result}/></div><div style={{display:"flex",gap:".45rem",justifyContent:"flex-end"}}><Btn onClick={onClose} variant="secondary">Cancelar</Btn><Btn onClick={()=>{onSave(result,files);onClose();}} icon="check">Guardar ficha</Btn></div></>}
+    </div>
+  </Modal>;
 }
 
 // ─── Patient Detail ────────────────────────────────────────────────
-function PatientDetail({ patient, templates, onBack, onUpdate }) {
-  const [tab, setTab] = useState("overview");
-  const [showGenEval, setShowGenEval] = useState(false);
-  const [showGenSess, setShowGenSess] = useState(false);
-  const [showNewSess, setShowNewSess] = useState(false);
-  const [sessDate, setSessDate] = useState(new Date().toISOString().slice(0, 10));
-  const [sessNotes, setSessNotes] = useState("");
-  const [sessFiles, setSessFiles] = useState([]);
-  const [homeLoading, setHomeLoading] = useState(false);
-  const [homeResult, setHomeResult] = useState("");
-
-  function upd(changes) { onUpdate({ ...patient, ...changes }); }
-
-  function saveEval(text, files) { upd({ evalFicha: text, evalFiles: files }); }
-  function saveSessFromGen(text, files) {
-    const sess = { id: uid(), date: sessDate, notes: "", ficha: text, files, createdAt: new Date().toISOString() };
-    upd({ sessions: [...(patient.sessions || []), sess] });
-  }
-  function saveManualSess() {
-    const sess = { id: uid(), date: sessDate, notes: sessNotes, ficha: "", files: sessFiles, createdAt: new Date().toISOString() };
-    upd({ sessions: [...(patient.sessions || []), sess] });
-    setShowNewSess(false); setSessNotes(""); setSessFiles([]);
-  }
-
-  async function genHome() {
-    setHomeLoading(true); setHomeResult("");
-    const sys = "Eres una kinesióloga experta. Genera programas de ejercicios domiciliarios detallados, en lenguaje claro para el paciente, basados en evidencia.";
-    const msg = `Programa de ejercicios para el hogar:\nPaciente: ${patient.name}, ${patient.age} años\nDiagnóstico: ${patient.diagnosis}\nSesiones: ${(patient.sessions || []).length}\nNotas: ${patient.notes}\n\nIncluye: nombre del ejercicio, descripción simple para el paciente, series, repeticiones, frecuencia semanal, cómo saber si lo está haciendo bien, señales de alerta para detenerse.`;
-    await askClaude(sys, [{ role: "user", content: msg }], c => setHomeResult(c));
-    setHomeLoading(false);
-  }
-
-  const tabs = [
-    { id: "overview", label: "📊 Resumen" },
-    { id: "eval", label: "📋 Evaluación" },
-    { id: "sessions", label: `🗓️ Sesiones (${(patient.sessions || []).length})` },
-    { id: "exams", label: "🔬 Exámenes" },
-    { id: "exercises", label: "🏋️ Ejercicios" },
-    { id: "ai", label: "🤖 IA" },
-  ];
-
-  const examImgs = (patient.examFiles || []).filter(f => isImage(f.name));
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {showGenEval && <GenerateFicha patient={patient} type="eval" template={templates.eval} onClose={() => setShowGenEval(false)} onSave={saveEval} />}
-      {showGenSess && <GenerateFicha patient={patient} type="session" template={templates.session} onClose={() => setShowGenSess(false)} onSave={saveSessFromGen} />}
-
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: ".9rem", flexWrap: "wrap" }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", color: T.teal, cursor: "pointer", fontWeight: "700" }}>← Volver</button>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: "800", fontSize: "1.08rem", color: T.charcoal }}>{patient.name}</div>
-          <div style={{ fontSize: ".78rem", color: T.muted }}>{patient.age} años · {patient.diagnosis}</div>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: ".3rem", flexWrap: "wrap", marginBottom: ".9rem" }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: ".38rem .8rem", borderRadius: "999px", border: "none", background: tab === t.id ? T.teal : T.warm, color: tab === t.id ? "white" : T.slate, fontWeight: "600", fontSize: ".76rem", cursor: "pointer" }}>{t.label}</button>
-        ))}
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto" }}>
-
-        {tab === "overview" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: ".9rem" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: ".6rem" }}>
-              {[[`${(patient.sessions || []).length}`, "Sesiones", T.teal], [`${(patient.examFiles || []).length + (patient.orderFiles || []).length}`, "Archivos", T.blue], [patient.evalFicha ? "✓ Evaluado" : "Pendiente", "Evaluación", patient.evalFicha ? T.sage : T.amber]].map(([v, l, c]) => (
-                <div key={l} style={{ background: T.white, borderRadius: "12px", padding: ".9rem", border: `1px solid ${T.border}`, textAlign: "center" }}>
-                  <div style={{ fontSize: "1.35rem", fontWeight: "800", color: c }}>{v}</div>
-                  <div style={{ fontSize: ".75rem", color: T.muted }}>{l}</div>
-                </div>
-              ))}
-            </div>
-            {patient.notes && <div style={{ background: T.warm, borderRadius: "11px", padding: ".9rem", border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: ".78rem", fontWeight: "700", color: T.slate, marginBottom: ".35rem" }}>📝 Notas</div>
-              <p style={{ fontSize: ".84rem", color: T.charcoal, margin: 0 }}>{patient.notes}</p>
-            </div>}
-            {patient.evalFicha && <div style={{ background: T.white, borderRadius: "11px", padding: "1rem", border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: ".78rem", fontWeight: "700", color: T.slate, marginBottom: ".5rem" }}>📋 Evaluación más reciente</div>
-              <div style={{ maxHeight: "200px", overflowY: "auto" }}><Md text={patient.evalFicha} /></div>
-            </div>}
-          </div>
-        )}
-
-        {tab === "eval" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: ".9rem" }}>
-            <button onClick={() => setShowGenEval(true)} style={{ padding: ".75rem", borderRadius: "11px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer" }}>
-              ✨ {patient.evalFicha ? "Regenerar ficha de evaluación" : "Generar ficha de evaluación"}
-            </button>
-            {patient.evalFicha ? (
-              <div style={{ background: T.white, borderRadius: "13px", padding: "1.1rem", border: `1px solid ${T.border}` }}>
-                <div style={{ fontWeight: "700", color: T.charcoal, marginBottom: ".6rem", fontSize: ".88rem" }}>📋 Ficha de Evaluación</div>
-                <Md text={patient.evalFicha} />
-                {(patient.evalFiles || []).length > 0 && (
-                  <div style={{ marginTop: ".9rem", paddingTop: ".9rem", borderTop: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: ".77rem", fontWeight: "700", color: T.muted, marginBottom: ".4rem" }}>Archivos adjuntos a la evaluación:</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: ".35rem" }}>
-                      {(patient.evalFiles || []).map(f => <a key={f.id} href={f.data} download={f.name} style={{ fontSize: ".76rem", color: T.teal, background: T.warm, padding: ".28rem .6rem", borderRadius: "6px", textDecoration: "none", border: `1px solid ${T.border}` }}>{isImage(f.name) ? "🖼️" : "📄"} {f.name}</a>)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : <div style={{ textAlign: "center", color: T.muted, padding: "2rem", fontSize: ".88rem" }}>Sin ficha de evaluación aún. ¡Genera una con el botón de arriba! 📋</div>}
-          </div>
-        )}
-
-        {tab === "sessions" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: ".75rem" }}>
-            <div style={{ display: "flex", gap: ".5rem" }}>
-              <button onClick={() => setShowNewSess(p => !p)} style={{ flex: 1, padding: ".65rem", borderRadius: "10px", border: `2px dashed ${T.teal}`, background: "transparent", color: T.teal, fontWeight: "700", cursor: "pointer", fontSize: ".85rem" }}>+ Registrar sesión</button>
-              <button onClick={() => setShowGenSess(true)} style={{ flex: 1, padding: ".65rem", borderRadius: "10px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer", fontSize: ".85rem" }}>✨ Generar ficha de sesión</button>
-            </div>
-            {showNewSess && (
-              <div style={{ background: T.white, borderRadius: "13px", padding: "1rem", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: ".7rem" }}>
-                <input type="date" value={sessDate} onChange={e => setSessDate(e.target.value)} style={{ padding: ".58rem", borderRadius: "8px", border: `1px solid ${T.border}`, fontSize: ".87rem" }} />
-                <textarea placeholder="Notas de la sesión (opcional)..." value={sessNotes} onChange={e => setSessNotes(e.target.value)} rows={3} style={{ padding: ".6rem", borderRadius: "8px", border: `1px solid ${T.border}`, fontSize: ".84rem", resize: "vertical", fontFamily: "inherit" }} />
-                <FileUpload label="Adjuntos:" files={sessFiles} onAdd={f => setSessFiles(p => [...p, f])} onRemove={id => setSessFiles(p => p.filter(x => x.id !== id))} accept="image/*,.pdf" />
-                <div style={{ display: "flex", gap: ".5rem", justifyContent: "flex-end" }}>
-                  <button onClick={() => setShowNewSess(false)} style={{ padding: ".5rem .9rem", borderRadius: "8px", border: `1px solid ${T.border}`, background: "white", color: T.muted, cursor: "pointer" }}>Cancelar</button>
-                  <button onClick={saveManualSess} style={{ padding: ".5rem 1.1rem", borderRadius: "8px", border: "none", background: T.teal, color: "white", fontWeight: "700", cursor: "pointer" }}>Guardar</button>
-                </div>
-              </div>
-            )}
-            {(patient.sessions || []).length === 0 && !showNewSess && <div style={{ textAlign: "center", color: T.muted, padding: "2rem", fontSize: ".88rem" }}>Sin sesiones aún 🗓️</div>}
-            {[...(patient.sessions || [])].reverse().map((s, idx, arr) => (
-              <div key={s.id} style={{ background: T.white, borderRadius: "12px", padding: ".95rem 1rem", border: `1px solid ${T.border}` }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: ".35rem" }}>
-                  <div style={{ fontWeight: "700", color: T.tealD, fontSize: ".86rem" }}>📅 Sesión {arr.length - idx} · {s.date}</div>
-                  <button onClick={() => { if (!confirm("¿Eliminar sesión?")) return; upd({ sessions: (patient.sessions || []).filter(x => x.id !== s.id) }); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: ".78rem" }}>🗑️</button>
-                </div>
-                {s.notes && <p style={{ fontSize: ".82rem", color: T.slate, margin: "0 0 .35rem" }}>{s.notes}</p>}
-                {s.ficha && <details><summary style={{ cursor: "pointer", fontSize: ".78rem", color: T.teal, fontWeight: "600" }}>Ver ficha de atención</summary>
-                  <div style={{ marginTop: ".5rem", background: T.warm, borderRadius: "8px", padding: ".75rem" }}><Md text={s.ficha} /></div>
-                </details>}
-                {(s.files || []).length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: ".3rem", marginTop: ".4rem" }}>
-                  {(s.files || []).map(f => <a key={f.id} href={f.data} download={f.name} style={{ fontSize: ".73rem", color: T.teal, background: T.warm, padding: ".23rem .55rem", borderRadius: "6px", textDecoration: "none", border: `1px solid ${T.border}` }}>{isPDF(f.name) ? "📄" : "🖼️"} {f.name}</a>)}
-                </div>}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {tab === "exams" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div style={{ background: T.white, borderRadius: "13px", padding: "1.1rem", border: `1px solid ${T.border}` }}>
-              <FileUpload label="🔬 Exámenes (Ecografía, RMN, RX, scanner, etc.):"
-                files={patient.examFiles || []} onAdd={f => upd({ examFiles: [...(patient.examFiles || []), f] })} onRemove={id => upd({ examFiles: (patient.examFiles || []).filter(x => x.id !== id) })} accept="image/*,.pdf" />
-              {examImgs.length > 0 && (
-                <div style={{ marginTop: ".9rem", display: "flex", flexDirection: "column", gap: ".6rem" }}>
-                  {examImgs.map(f => (
-                    <div key={f.id}>
-                      <div style={{ fontSize: ".75rem", color: T.muted, marginBottom: ".25rem" }}>{f.name}</div>
-                      <img src={f.data} alt={f.name} style={{ maxWidth: "100%", borderRadius: "9px", border: `1px solid ${T.border}` }} />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div style={{ background: T.white, borderRadius: "13px", padding: "1.1rem", border: `1px solid ${T.border}` }}>
-              <FileUpload label="📃 Orden médica:"
-                files={patient.orderFiles || []} onAdd={f => upd({ orderFiles: [...(patient.orderFiles || []), f] })} onRemove={id => upd({ orderFiles: (patient.orderFiles || []).filter(x => x.id !== id) })} accept="image/*,.pdf" />
-              <p style={{ fontSize: ".76rem", color: T.muted, margin: ".6rem 0 0", lineHeight: 1.55 }}>La IA considerará las indicaciones médicas al generar planes, pero puede proponer avances basados en evidencia y la evolución del paciente.</p>
-            </div>
-            {((patient.examFiles || []).length > 0 || (patient.orderFiles || []).length > 0) && (
-              <button onClick={() => setTab("ai")} style={{ padding: ".65rem 1.2rem", borderRadius: "11px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer" }}>🤖 Analizar exámenes con IA →</button>
-            )}
-          </div>
-        )}
-
-        {tab === "exercises" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: ".9rem" }}>
-            <button onClick={genHome} disabled={homeLoading} style={{ padding: ".75rem", borderRadius: "11px", border: "none", background: homeLoading ? T.muted : `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: homeLoading ? "not-allowed" : "pointer" }}>
-              {homeLoading ? "⏳ Generando programa..." : "🏋️ Generar programa de ejercicios para el hogar"}
-            </button>
-            {homeResult && (
-              <div style={{ background: T.white, borderRadius: "13px", padding: "1.1rem", border: `1px solid ${T.border}` }}>
-                <Md text={homeResult} />
-                <button onClick={() => { upd({ homeExercises: homeResult }); setHomeResult(""); }} style={{ marginTop: ".75rem", padding: ".5rem 1rem", borderRadius: "8px", border: "none", background: T.teal, color: "white", fontWeight: "700", cursor: "pointer", fontSize: ".82rem" }}>💾 Guardar programa</button>
-              </div>
-            )}
-            {patient.homeExercises && !homeResult && (
-              <div style={{ background: T.white, borderRadius: "13px", padding: "1.1rem", border: `1px solid ${T.border}` }}>
-                <div style={{ fontWeight: "700", color: T.charcoal, marginBottom: ".6rem", fontSize: ".88rem" }}>Programa guardado para {patient.name}</div>
-                <Md text={patient.homeExercises} />
-              </div>
-            )}
-            {!patient.homeExercises && !homeResult && !homeLoading && (
-              <div style={{ textAlign: "center", color: T.muted, padding: "2rem", fontSize: ".88rem" }}>Genera un programa personalizado según el diagnóstico 🏠</div>
-            )}
-          </div>
-        )}
-
-        {tab === "ai" && (
-          <div style={{ height: "430px", display: "flex", flexDirection: "column" }}>
-            <AIChat key={`ai-${patient.id}`}
-              system={`Eres una kinesióloga clínica con actualización constante en evidencia. Atienes a:\nPaciente: ${patient.name}, ${patient.age} años\nDiagnóstico: ${patient.diagnosis}\nNotas: ${patient.notes}\nSesiones realizadas: ${(patient.sessions || []).length}\nOrden médica: ${(patient.orderFiles || []).length > 0 ? "Sí (ver imágenes adjuntas)" : "No"}\n\nResponde con criterio clínico basado en evidencia. Si hay orden médica, considérala pero puedes proponer avances si la evidencia y evolución lo justifican.`}
-              placeholder={`Consulta clínica sobre ${patient.name}...`}
-              extraContent={(patient.examFiles || []).filter(f => isImage(f.name)).map(f => ({ type: "image", source: { type: "base64", media_type: f.type, data: f.data.split(",")[1] } })).concat((patient.orderFiles || []).filter(f => isImage(f.name)).map(f => ({ type: "image", source: { type: "base64", media_type: f.type, data: f.data.split(",")[1] } })))}
-              suggestions={["¿Técnicas más efectivas para este diagnóstico?", "¿Cómo progreso el tratamiento?", "Analiza los exámenes adjuntos", "¿Qué dice la evidencia actual sobre este caso?"]}
-            />
-          </div>
-        )}
-      </div>
+function PatientDetail({patient,templates,onBack,onUpdate}){
+  const [tab,setTab]=useState("overview");const [showGenEval,setShowGenEval]=useState(false);const [showGenSess,setShowGenSess]=useState(false);
+  const [showNewSess,setShowNewSess]=useState(false);const [sessDate,setSessDate]=useState(new Date().toISOString().slice(0,10));const [sessNotes,setSessNotes]=useState("");const [sessFiles,setSessFiles]=useState([]);
+  const [homeLoading,setHomeLoading]=useState(false);const [homeResult,setHomeResult]=useState("");
+  function upd(c){onUpdate({...patient,...c});}
+  async function genHome(){setHomeLoading(true);setHomeResult("");await askClaude("Eres kinesióloga experta. Genera programas de ejercicios domiciliarios detallados en lenguaje claro para el paciente.",[{role:"user",content:`Programa para: ${patient.name}, ${patient.age}a, Dx: ${patient.diagnosis}. ${(patient.sessions||[]).length} sesiones. Incluye: nombre, descripción simple, series, reps, frecuencia, señales de alerta.`}],c=>setHomeResult(c));setHomeLoading(false);}
+  const tabs=[{id:"overview",label:"Resumen"},{id:"eval",label:"Evaluación"},{id:"sessions",label:`Sesiones (${(patient.sessions||[]).length})`},{id:"exams",label:"Exámenes"},{id:"exercises",label:"Ejercicios"},{id:"ai",label:"Asistente IA"}];
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    {showGenEval&&<GenerateFicha patient={patient} type="eval" template={templates.eval} onClose={()=>setShowGenEval(false)} onSave={(t,f)=>upd({evalFicha:t,evalFiles:f})}/>}
+    {showGenSess&&<GenerateFicha patient={patient} type="session" template={templates.session} onClose={()=>setShowGenSess(false)} onSave={(t,f)=>upd({sessions:[...(patient.sessions||[]),{id:uid(),date:sessDate,notes:"",ficha:t,files:f,createdAt:new Date().toISOString()}]})}/>}
+    <div style={{display:"flex",alignItems:"center",gap:".8rem",marginBottom:".8rem"}}>
+      <button onClick={onBack} style={{background:"none",border:"none",color:T.accent,cursor:"pointer",fontWeight:"500",fontSize:".84rem",display:"flex",alignItems:"center",gap:".25rem"}}><Icon name="chevLeft" size={14} color={T.accent}/>Volver</button>
+      <div style={{flex:1}}><div style={{fontWeight:"600",fontSize:".95rem",color:T.text}}>{patient.name}</div><div style={{fontSize:".75rem",color:T.textMuted}}>{patient.age} años · {patient.diagnosis}</div></div>
     </div>
-  );
+    <SubTab tabs={tabs} active={tab} onChange={setTab}/>
+    <div style={{flex:1,overflowY:"auto"}}>
+      {tab==="overview"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:".55rem"}}>
+          {[[`${(patient.sessions||[]).length}`,"Sesiones",T.accent],[`${(patient.examFiles||[]).length+(patient.orderFiles||[]).length}`,"Archivos","#7c3aed"],[patient.evalFicha?"Evaluado":"Pendiente","Estado",patient.evalFicha?T.green:T.amber]].map(([v,l,c])=><Card key={l} style={{textAlign:"center",padding:".8rem"}}><div style={{fontSize:"1.4rem",fontWeight:"700",color:c}}>{v}</div><div style={{fontSize:".72rem",color:T.textMuted,marginTop:".1rem"}}>{l}</div></Card>)}
+        </div>
+        {patient.notes&&<Card><div style={{fontSize:".72rem",fontWeight:"600",color:T.textMuted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:".3rem"}}>Notas</div><p style={{fontSize:".84rem",color:T.text,margin:0,lineHeight:1.65}}>{patient.notes}</p></Card>}
+        {patient.evalFicha&&<Card><div style={{fontSize:".72rem",fontWeight:"600",color:T.textMuted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:".45rem"}}>Evaluación</div><div style={{maxHeight:"170px",overflowY:"auto"}}><Md text={patient.evalFicha}/></div></Card>}
+      </div>}
+      {tab==="eval"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+        <Btn onClick={()=>setShowGenEval(true)} icon="ai">{patient.evalFicha?"Regenerar evaluación":"Generar ficha de evaluación"}</Btn>
+        {patient.evalFicha?<Card><Md text={patient.evalFicha}/></Card>:<div style={{textAlign:"center",color:T.textMuted,padding:"2rem",fontSize:".86rem"}}>Sin ficha de evaluación.</div>}
+      </div>}
+      {tab==="sessions"&&<div style={{display:"flex",flexDirection:"column",gap:".65rem"}}>
+        <div style={{display:"flex",gap:".45rem"}}><Btn onClick={()=>setShowNewSess(p=>!p)} variant="ghost" icon="plus" size="sm">Registrar</Btn><Btn onClick={()=>setShowGenSess(true)} icon="ai" size="sm">Generar ficha</Btn></div>
+        {showNewSess&&<Card style={{display:"flex",flexDirection:"column",gap:".6rem"}}>
+          <Input type="date" value={sessDate} onChange={e=>setSessDate(e.target.value)}/>
+          <Input value={sessNotes} onChange={e=>setSessNotes(e.target.value)} placeholder="Notas de la sesión..." rows={3}/>
+          <FileUpload label="Adjuntos" files={sessFiles} onAdd={f=>setSessFiles(p=>[...p,f])} onRemove={id=>setSessFiles(p=>p.filter(x=>x.id!==id))} accept="image/*,.pdf"/>
+          <div style={{display:"flex",gap:".45rem",justifyContent:"flex-end"}}><Btn onClick={()=>setShowNewSess(false)} variant="secondary" size="sm">Cancelar</Btn><Btn onClick={()=>{upd({sessions:[...(patient.sessions||[]),{id:uid(),date:sessDate,notes:sessNotes,ficha:"",files:sessFiles,createdAt:new Date().toISOString()}]});setShowNewSess(false);setSessNotes("");setSessFiles([]);}} size="sm" icon="check">Guardar</Btn></div>
+        </Card>}
+        {(patient.sessions||[]).length===0&&!showNewSess&&<div style={{textAlign:"center",color:T.textMuted,padding:"2rem",fontSize:".86rem"}}>Sin sesiones registradas.</div>}
+        {[...(patient.sessions||[])].reverse().map((s,i,a)=><Card key={s.id}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:".28rem"}}>
+            <div style={{fontWeight:"500",color:T.text,fontSize:".84rem"}}>Sesión {a.length-i} <span style={{color:T.textMuted,fontWeight:"400"}}>· {s.date}</span></div>
+            <button onClick={()=>{if(!confirm("¿Eliminar?"))return;upd({sessions:(patient.sessions||[]).filter(x=>x.id!==s.id)});}} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight}}><Icon name="trash" size={13}/></button>
+          </div>
+          {s.notes&&<p style={{fontSize:".81rem",color:T.textMuted,margin:"0 0 .3rem"}}>{s.notes}</p>}
+          {s.ficha&&<details><summary style={{cursor:"pointer",fontSize:".76rem",color:T.accent,fontWeight:"500"}}>Ver ficha de atención</summary><div style={{marginTop:".45rem",background:T.bg,borderRadius:"6px",padding:".7rem"}}><Md text={s.ficha}/></div></details>}
+        </Card>)}
+      </div>}
+      {tab==="exams"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+        <Card>
+          <FileUpload label="Exámenes (Ecografía, RMN, RX, etc.)" files={patient.examFiles||[]} onAdd={f=>upd({examFiles:[...(patient.examFiles||[]),f]})} onRemove={id=>upd({examFiles:(patient.examFiles||[]).filter(x=>x.id!==id)})} accept="image/*,.pdf"/>
+          {(patient.examFiles||[]).filter(f=>isImage(f.name)).map(f=><img key={f.id} src={f.data} alt={f.name} style={{maxWidth:"100%",borderRadius:"6px",marginTop:".65rem",border:`1px solid ${T.border}`}}/>)}
+        </Card>
+        <Card>
+          <FileUpload label="Orden médica" files={patient.orderFiles||[]} onAdd={f=>upd({orderFiles:[...(patient.orderFiles||[]),f]})} onRemove={id=>upd({orderFiles:(patient.orderFiles||[]).filter(x=>x.id!==id)})} accept="image/*,.pdf"/>
+          <p style={{fontSize:".74rem",color:T.textMuted,margin:".55rem 0 0",lineHeight:1.5}}>La IA considera las indicaciones médicas y puede proponer avances según evidencia y evolución.</p>
+        </Card>
+      </div>}
+      {tab==="exercises"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+        <Btn onClick={genHome} disabled={homeLoading} icon="ai">{homeLoading?"Generando programa...":"Generar programa de ejercicios para el hogar"}</Btn>
+        {homeResult&&<Card><Md text={homeResult}/><div style={{marginTop:".65rem"}}><Btn onClick={()=>{upd({homeExercises:homeResult});setHomeResult("");}} size="sm" icon="check">Guardar programa</Btn></div></Card>}
+        {patient.homeExercises&&!homeResult&&<Card><div style={{fontSize:".72rem",fontWeight:"600",color:T.textMuted,textTransform:"uppercase",letterSpacing:".04em",marginBottom:".5rem"}}>Programa guardado</div><Md text={patient.homeExercises}/></Card>}
+      </div>}
+      {tab==="ai"&&<div style={{height:"400px",display:"flex",flexDirection:"column"}}><AIChat key={`ai-${patient.id}`} system={`Eres kinesióloga clínica experta. Paciente: ${patient.name}, ${patient.age}a, Dx: ${patient.diagnosis}. Notas: ${patient.notes}. Sesiones: ${(patient.sessions||[]).length}. Responde con criterio clínico basado en evidencia actual.`} placeholder={`Consulta sobre ${patient.name}...`} extraContent={(patient.examFiles||[]).filter(f=>isImage(f.name)).map(f=>({type:"image",source:{type:"base64",media_type:f.type,data:f.data.split(",")[1]}}))} suggestions={["Técnicas más efectivas para este diagnóstico","¿Cómo progreso el tratamiento?","Analiza los exámenes adjuntos","Evidencia actual sobre este caso"]}/></div>}
+    </div>
+  </div>;
 }
 
-// ─── Patient Form ──────────────────────────────────────────────────
-function PatientForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial || { name: "", age: "", diagnosis: "", notes: "" });
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: ".85rem" }}>
-      {[["name", "Nombre completo *", "text"], ["age", "Edad", "number"], ["diagnosis", "Diagnóstico / Motivo de consulta", "text"]].map(([k, lbl, type]) => (
-        <div key={k}>
-          <label style={{ fontSize: ".81rem", fontWeight: "700", color: T.slate, display: "block", marginBottom: ".3rem" }}>{lbl}</label>
-          <input type={type} value={form[k] || ""} onChange={e => set(k, e.target.value)}
-            style={{ width: "100%", padding: ".62rem .88rem", borderRadius: "10px", border: `1.5px solid ${T.border}`, fontSize: ".87rem", boxSizing: "border-box", outline: "none", color: T.charcoal }}
-            onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-        </div>
-      ))}
-      <div>
-        <label style={{ fontSize: ".81rem", fontWeight: "700", color: T.slate, display: "block", marginBottom: ".3rem" }}>Notas adicionales</label>
-        <textarea value={form.notes || ""} onChange={e => set("notes", e.target.value)} rows={3}
-          style={{ width: "100%", padding: ".62rem .88rem", borderRadius: "10px", border: `1.5px solid ${T.border}`, fontSize: ".87rem", resize: "vertical", boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.charcoal }}
-          onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-      </div>
-      <div style={{ display: "flex", gap: ".5rem", justifyContent: "flex-end" }}>
-        <button onClick={onCancel} style={{ padding: ".58rem 1.05rem", borderRadius: "9px", border: `1px solid ${T.border}`, background: "white", color: T.muted, cursor: "pointer", fontWeight: "600" }}>Cancelar</button>
-        <button onClick={() => onSave(form)} disabled={!form.name?.trim()} style={{ padding: ".58rem 1.25rem", borderRadius: "9px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer" }}>Guardar</button>
-      </div>
+// ─── Patients ─────────────────────────────────────────────────────
+function PatientsModule({templates}){
+  const [patients,setPatients]=useState(()=>load(SK.patients)||[]);const [view,setView]=useState("list");const [selected,setSelected]=useState(null);const [search,setSearch]=useState("");const [form,setForm]=useState({name:"",age:"",diagnosis:"",notes:""});
+  function persist(l){setPatients(l);save(SK.patients,l);}
+  function saveP(){const base={sessions:[],examFiles:[],orderFiles:[]};const l=selected?.id?patients.map(p=>p.id===selected.id?{...p,...form}:p):[...patients,{...base,id:uid(),...form}];persist(l);setView("list");setSelected(null);}
+  function updP(u){const l=patients.map(p=>p.id===u.id?u:p);persist(l);setSelected(u);}
+  const filtered=patients.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||(p.diagnosis||"").toLowerCase().includes(search.toLowerCase()));
+  if(view==="detail"&&selected)return <PatientDetail patient={selected} templates={templates} onBack={()=>{setView("list");setSelected(null);}} onUpdate={updP}/>;
+  if(view==="form")return <div>
+    <div style={{fontWeight:"600",fontSize:".9rem",marginBottom:".9rem",color:T.text}}>{selected?"Editar paciente":"Nuevo paciente"}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:".7rem"}}>
+      {[["Nombre completo *","name","text"],["Edad","age","number"],["Diagnóstico / Motivo","diagnosis","text"]].map(([l,k,t])=><div key={k}><Label>{l}</Label><Input type={t} value={form[k]||""} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))}/></div>)}
+      <div><Label>Notas</Label><Input value={form.notes||""} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} rows={3}/></div>
+      <div style={{display:"flex",gap:".45rem",justifyContent:"flex-end"}}><Btn onClick={()=>{setView("list");setSelected(null);}} variant="secondary">Cancelar</Btn><Btn onClick={saveP} disabled={!form.name?.trim()} icon="check">Guardar</Btn></div>
     </div>
-  );
+  </div>;
+  return <div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+    <div style={{display:"flex",gap:".5rem"}}>
+      <div style={{flex:1,position:"relative"}}><div style={{position:"absolute",left:".7rem",top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}><Icon name="search" size={14} color={T.textLight}/></div><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar paciente o diagnóstico..." style={{width:"100%",padding:".52rem .8rem .52rem 2.1rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".84rem",outline:"none"}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/></div>
+      <Btn onClick={()=>{setSelected(null);setForm({name:"",age:"",diagnosis:"",notes:""});setView("form");}} icon="plus">Nuevo</Btn>
+    </div>
+    {filtered.length===0?<div style={{textAlign:"center",padding:"2.5rem",color:T.textMuted}}><Icon name="patients" size={32} color={T.border}/><div style={{fontWeight:"500",marginTop:".45rem",fontSize:".88rem"}}>{search?"Sin resultados":"Sin pacientes aún"}</div><div style={{fontSize:".78rem",color:T.textLight}}>Agrega tu primer paciente</div></div>
+    :filtered.map(p=><div key={p.id} onClick={()=>{setSelected(p);setView("detail");}} style={{background:T.surface,borderRadius:"7px",padding:".8rem .95rem",border:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:".8rem",cursor:"pointer",transition:"border-color .12s,box-shadow .12s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accentBorder;e.currentTarget.style.boxShadow=`0 0 0 3px ${T.accentBg}`;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.boxShadow="none";}}>
+      <div style={{width:34,height:34,borderRadius:"50%",background:T.accentBg,border:`1.5px solid ${T.accentBorder}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontWeight:"700",color:T.accent,fontSize:".9rem"}}>{p.name[0]?.toUpperCase()}</span></div>
+      <div style={{flex:1,minWidth:0}}><div style={{fontWeight:"500",color:T.text,fontSize:".87rem"}}>{p.name}</div><div style={{fontSize:".74rem",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.age?`${p.age} años · `:""}{p.diagnosis||"Sin diagnóstico"}</div></div>
+      <div style={{fontSize:".73rem",color:T.textMuted,textAlign:"right"}}><div style={{fontWeight:"500",color:T.accent}}>{(p.sessions||[]).length} sesiones</div></div>
+      <div style={{display:"flex",gap:".2rem"}}>
+        <button onClick={e=>{e.stopPropagation();setSelected(p);setForm(p);setView("form");}} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:".25rem"}}><Icon name="edit" size={13}/></button>
+        <button onClick={e=>{e.stopPropagation();if(!confirm("¿Eliminar paciente?"))return;persist(patients.filter(x=>x.id!==p.id));}} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:".25rem"}}><Icon name="trash" size={13}/></button>
+      </div>
+    </div>)}
+  </div>;
 }
 
-// ─── Patients Module ───────────────────────────────────────────────
-function PatientsModule({ templates }) {
-  const [patients, setPatients] = useState(() => load(SK.patients) || []);
-  const [view, setView] = useState("list");
-  const [selected, setSelected] = useState(null);
-  const [search, setSearch] = useState("");
+// ─── Research ─────────────────────────────────────────────────────
+function ResearchModule(){
+  const [tab,setTab]=useState("ia");
+  const [projects,setProjects]=useState(()=>load(SK.projects)||[]);const [showAdd,setShowAdd]=useState(false);const [newP,setNewP]=useState({title:"",description:""});
+  const [summaries,setSummaries]=useState([]);const [sInput,setSInput]=useState("");const [sLoading,setSLoading]=useState(false);
+  function persistP(l){setProjects(l);save(SK.projects,l);}
+  async function addSummary(){if(!sInput.trim())return;setSLoading(true);let r="";await askClaude("Eres investigadora experta en kinesiología. Resume artículos científicos estructuradamente: objetivo, metodología, resultados, nivel de evidencia, aplicación clínica.",[{role:"user",content:`Resume: ${sInput}`}],c=>r=c);setSummaries(p=>[{id:uid(),query:sInput,result:r,date:new Date().toLocaleDateString()},...p]);setSInput("");setSLoading(false);}
+  const tabs=[{id:"ia",label:"Investigación con IA"},{id:"projects",label:"Proyectos"},{id:"summaries",label:"Resúmenes"}];
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <SubTab tabs={tabs} active={tab} onChange={setTab}/>
+    {tab==="ia"&&<div style={{flex:1}}><AIChat key="res" system="Eres investigadora experta en kinesiología, fisioterapia y rehabilitación. Conoces la literatura científica actualizada. Citas evidencia real, explicas nivel de evidencia (GRADE, PEDro), señalas limitaciones y sintetizas hallazgos de forma práctica." placeholder="¿Qué evidencia existe sobre...?" suggestions={["Evidencia dry needling en dolor miofascial","Ejercicio vs terapia manual en lumbalgia","Kinesiotaping: evidencia actual","Guías clínicas rehab de hombro 2024-2025"]}/></div>}
+    {tab==="projects"&&<div style={{display:"flex",flexDirection:"column",gap:".7rem"}}>
+      <div style={{display:"flex",justifyContent:"flex-end"}}><Btn onClick={()=>setShowAdd(true)} icon="plus" size="sm">Nuevo proyecto</Btn></div>
+      {showAdd&&<Card style={{display:"flex",flexDirection:"column",gap:".6rem"}}>
+        {[["Título","title"],["Descripción","description"]].map(([l,k])=><div key={k}><Label>{l}</Label><Input value={newP[k]} onChange={e=>setNewP(p=>({...p,[k]:e.target.value}))}/></div>)}
+        <div style={{display:"flex",gap:".45rem",justifyContent:"flex-end"}}><Btn onClick={()=>setShowAdd(false)} variant="secondary" size="sm">Cancelar</Btn><Btn onClick={()=>{persistP([...projects,{id:uid(),...newP,date:new Date().toLocaleDateString()}]);setShowAdd(false);setNewP({title:"",description:""});}} size="sm" disabled={!newP.title} icon="check">Guardar</Btn></div>
+      </Card>}
+      {projects.length===0&&!showAdd&&<div style={{textAlign:"center",color:T.textMuted,padding:"2rem",fontSize:".86rem"}}>Sin proyectos aún.</div>}
+      {projects.map(p=><Card key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div><div style={{fontWeight:"500",color:T.text,fontSize:".87rem"}}>{p.title}</div>{p.description&&<div style={{fontSize:".78rem",color:T.textMuted,marginTop:".15rem"}}>{p.description}</div>}<div style={{fontSize:".71rem",color:T.textLight,marginTop:".25rem"}}>{p.date}</div></div>
+        <button onClick={()=>persistP(projects.filter(x=>x.id!==p.id))} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight}}><Icon name="trash" size={13}/></button>
+      </Card>)}
+    </div>}
+    {tab==="summaries"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+      <div style={{display:"flex",gap:".45rem"}}><input value={sInput} onChange={e=>setSInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSummary()} placeholder="Pega un tema, resumen o DOI para resumir..." style={{flex:1,padding:".52rem .8rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".84rem",outline:"none"}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/><Btn onClick={addSummary} disabled={sLoading||!sInput.trim()} icon="ai">{sLoading?"...":"Resumir"}</Btn></div>
+      {summaries.map(s=><Card key={s.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:".4rem"}}><div style={{fontWeight:"500",fontSize:".8rem",color:T.text}}>{s.query}</div><div style={{fontSize:".71rem",color:T.textLight}}>{s.date}</div></div><Md text={s.result}/></Card>)}
+    </div>}
+  </div>;
+}
 
-  function persist(list) { setPatients(list); save(SK.patients, list); }
-  function savePatient(form) {
-    const base = { sessions: [], examFiles: [], orderFiles: [] };
-    const list = selected?.id
-      ? patients.map(p => p.id === selected.id ? { ...p, ...form } : p)
-      : [...patients, { ...base, id: uid(), ...form }];
-    persist(list); setView("list"); setSelected(null);
-  }
-  function updatePatient(upd) { const list = patients.map(p => p.id === upd.id ? upd : p); persist(list); setSelected(upd); }
-  function del(id) { if (!confirm("¿Eliminar paciente y todos sus datos?")) return; persist(patients.filter(p => p.id !== id)); }
-
-  const filtered = patients.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || (p.diagnosis || "").toLowerCase().includes(search.toLowerCase()));
-
-  if (view === "detail" && selected) return <PatientDetail patient={selected} templates={templates} onBack={() => { setView("list"); setSelected(null); }} onUpdate={updatePatient} />;
-  if (view === "form") return (
-    <div>
-      <div style={{ fontWeight: "800", fontSize: "1.05rem", marginBottom: "1.1rem", color: T.charcoal }}>{selected ? "Editar paciente" : "Nuevo paciente"}</div>
-      <PatientForm initial={selected} onSave={savePatient} onCancel={() => { setView("list"); setSelected(null); }} />
-    </div>
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: ".9rem" }}>
-      <div style={{ display: "flex", gap: ".6rem" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o diagnóstico..."
-          style={{ flex: 1, padding: ".62rem .9rem", borderRadius: "10px", border: `1.5px solid ${T.border}`, fontSize: ".87rem", outline: "none" }}
-          onFocus={e => e.target.style.borderColor = T.teal} onBlur={e => e.target.style.borderColor = T.border} />
-        <button onClick={() => { setSelected(null); setView("form"); }} style={{ padding: ".62rem 1.1rem", borderRadius: "10px", border: "none", background: `linear-gradient(135deg,${T.teal},${T.tealD})`, color: "white", fontWeight: "700", cursor: "pointer", whiteSpace: "nowrap" }}>+ Nuevo</button>
+// ─── Teaching ─────────────────────────────────────────────────────
+function TeachingModule(){
+  const [tab,setTab]=useState("subjects");
+  const [subjects,setSubjects]=useState(()=>load(SK.subjects)||[]);const [sel,setSel]=useState(null);const [showAdd,setShowAdd]=useState(false);const [newName,setNewName]=useState("");
+  function persist(l){setSubjects(l);save(SK.subjects,l);}
+  const tabs=[{id:"subjects",label:"Asignaturas"},{id:"rubrics",label:"Rúbricas y Pautas"},{id:"ia",label:"IA para Docencia"}];
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <SubTab tabs={tabs} active={tab} onChange={setTab}/>
+    {tab==="subjects"&&<div style={{display:"flex",gap:"1rem",flex:1,minHeight:0}}>
+      <div style={{width:"190px",flexShrink:0,display:"flex",flexDirection:"column",gap:".4rem"}}>
+        <Btn onClick={()=>setShowAdd(true)} icon="plus" size="sm" full>Nueva</Btn>
+        {showAdd&&<Card style={{display:"flex",flexDirection:"column",gap:".45rem",padding:".7rem"}}>
+          <Input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Nombre" onKeyDown={e=>e.key==="Enter"&&newName&&(persist([...subjects,{id:uid(),name:newName,notes:""}]),setShowAdd(false),setNewName(""))}/>
+          <div style={{display:"flex",gap:".3rem",justifyContent:"flex-end"}}><Btn onClick={()=>{setShowAdd(false);setNewName("");}} variant="secondary" size="sm">×</Btn><Btn onClick={()=>{persist([...subjects,{id:uid(),name:newName,notes:""}]);setShowAdd(false);setNewName("");}} size="sm" disabled={!newName}>+</Btn></div>
+        </Card>}
+        {subjects.map(s=><div key={s.id} onClick={()=>setSel(s)} style={{padding:".52rem .72rem",borderRadius:"6px",border:`1px solid ${sel?.id===s.id?T.accent:T.border}`,background:sel?.id===s.id?T.accentBg:T.surface,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all .1s"}}>
+          <span style={{fontSize:".82rem",fontWeight:sel?.id===s.id?"600":"400",color:sel?.id===s.id?T.accentD:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+          <button onClick={e=>{e.stopPropagation();if(!confirm("¿Eliminar?"))return;persist(subjects.filter(x=>x.id!==s.id));if(sel?.id===s.id)setSel(null);}} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:0,flexShrink:0}}><Icon name="trash" size={11}/></button>
+        </div>)}
       </div>
-      {filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "2.5rem", color: T.muted }}>
-          <div style={{ fontSize: "2.2rem" }}>👤</div>
-          <div style={{ fontWeight: "600", marginTop: ".4rem" }}>{search ? "Sin resultados" : "Sin pacientes aún"}</div>
-          <div style={{ fontSize: ".81rem" }}>Agrega tu primer paciente con "+ Nuevo"</div>
-        </div>
-      ) : filtered.map(p => (
-        <div key={p.id} onClick={() => { setSelected(p); setView("detail"); }} style={{ background: T.white, borderRadius: "13px", padding: ".95rem 1.1rem", border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: ".9rem", cursor: "pointer" }}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = `0 4px 16px rgba(13,148,136,.12)`}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
-          <div style={{ width: 42, height: 42, borderRadius: "50%", background: `linear-gradient(135deg,${T.teal},${T.sageL})`, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "800", fontSize: "1rem", flexShrink: 0 }}>{p.name[0]?.toUpperCase()}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: "700", color: T.charcoal, fontSize: ".92rem" }}>{p.name}</div>
-            <div style={{ fontSize: ".78rem", color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.age ? `${p.age} años · ` : ""}{p.diagnosis || "Sin diagnóstico"}</div>
+      <div style={{flex:1,minWidth:0}}>
+        {sel?<div style={{display:"flex",flexDirection:"column",gap:".6rem",height:"100%"}}>
+          <div style={{fontWeight:"600",color:T.text,fontSize:".9rem"}}>{sel.name}</div>
+          <textarea value={sel.notes||""} onChange={e=>{const u={...sel,notes:e.target.value};setSel(u);persist(subjects.map(s=>s.id===u.id?u:s));}} placeholder="Agrega contenidos, objetivos, bibliografía, apuntes..." rows={14} style={{flex:1,padding:".75rem",borderRadius:"7px",border:`1px solid ${T.border}`,fontSize:".86rem",resize:"none",fontFamily:"inherit",lineHeight:1.7,outline:"none",color:T.text}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+        </div>:<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:T.textLight,fontSize:".86rem"}}>Selecciona o crea una asignatura</div>}
+      </div>
+    </div>}
+    {tab==="rubrics"&&<div style={{flex:1}}><AIChat key="rubrics" system="Eres docente universitaria experta en kinesiología. Creas rúbricas, pautas de cotejo e instrumentos de evaluación con criterios claros, niveles de desempeño y alineados con objetivos de aprendizaje." placeholder="Pide una rúbrica, pauta o instrumento..." suggestions={["Rúbrica evaluar examen físico de hombro","Pauta de cotejo para punción seca","Rúbrica presentación caso clínico 10 min","Instrumento evaluación práctica clínica final"]}/></div>}
+    {tab==="ia"&&<div style={{flex:1}}><AIChat key="teach" system="Eres docente universitaria experta en kinesiología. Preparas clases, casos clínicos, esquemas conceptuales, guías prácticas con objetivos de aprendizaje claros y evidencia actualizada." placeholder="¿Qué material necesitas preparar?" suggestions={["Caso clínico LCA 3er año con preguntas","Esquema biomecánica de la marcha 60 min","10 preguntas tipo OSCE evaluación de rodilla","Guía práctica evaluación neurológica"]}/></div>}
+  </div>;
+}
+
+// ─── Clinical ─────────────────────────────────────────────────────
+function ClinicalModule({templates,onOpenTemplates}){
+  const [tab,setTab]=useState("agenda");
+  const tabs=[{id:"agenda",label:"Agenda"},{id:"patients",label:"Pacientes"},{id:"ia",label:"Asistente IA"},{id:"settings",label:"Ajustes"}];
+  return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+    <SubTab tabs={tabs} active={tab} onChange={setTab}/>
+    {tab==="agenda"&&<AgendaModule/>}
+    {tab==="patients"&&<PatientsModule templates={templates}/>}
+    {tab==="ia"&&<div style={{flex:1}}><AIChat key="clin" system="Eres kinesióloga clínica con actualización constante en evidencia. Respondes con criterio clínico profesional. Orientas sobre diagnóstico diferencial, evaluación, protocolos y abordajes kinesiológicos." placeholder="Consulta clínica, protocolo, diagnóstico diferencial..." suggestions={["Protocolo evaluación dolor de hombro","¿Diferenciar tendinopatía de bursitis?","Abordaje kinesiológico post ACV","Criterios de alta rehabilitación rodilla"]}/></div>}
+    {tab==="settings"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
+      <div style={{fontWeight:"600",color:T.text,fontSize:".88rem"}}>Ajustes del Área Clínica</div>
+      <Card><div style={{fontWeight:"500",fontSize:".85rem",color:T.text,marginBottom:".3rem"}}>Formatos de Fichas</div><p style={{fontSize:".79rem",color:T.textMuted,margin:"0 0 .7rem",lineHeight:1.5}}>Configura tus formatos de evaluación y sesión para que la IA los use automáticamente.</p><Btn onClick={onOpenTemplates} icon="file">Configurar formatos</Btn></Card>
+    </div>}
+  </div>;
+}
+
+// ─── Global Search ─────────────────────────────────────────────────
+function GlobalSearch({onClose,onNavigate}){
+  const [q,setQ]=useState("");const inputRef=useRef(null);
+  useEffect(()=>inputRef.current?.focus(),[]);
+  const patients=useMemo(()=>load(SK.patients)||[],[]);
+  const results=useMemo(()=>{
+    if(q.trim().length<2)return[];
+    const ql=q.toLowerCase();const res=[];
+    patients.forEach(p=>{
+      if(p.name.toLowerCase().includes(ql)||p.diagnosis?.toLowerCase().includes(ql))res.push({type:"patient",label:p.name,sub:p.diagnosis||"Sin diagnóstico",id:p.id,data:p});
+      (p.sessions||[]).forEach(s=>{if(s.notes?.toLowerCase().includes(ql)||s.ficha?.toLowerCase().includes(ql))res.push({type:"session",label:`Sesión — ${p.name}`,sub:s.date,id:s.id,data:p});});
+    });
+    return res.slice(0,8);
+  },[q,patients]);
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:2000,paddingTop:"12vh"}}>
+    <div style={{background:T.surface,borderRadius:"10px",width:"100%",maxWidth:"520px",boxShadow:"0 20px 60px rgba(0,0,0,.2)",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",gap:".6rem",padding:".85rem 1rem",borderBottom:`1px solid ${T.border}`}}>
+        <Icon name="search" size={16} color={T.textMuted}/>
+        <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar pacientes, diagnósticos, sesiones..." onKeyDown={e=>e.key==="Escape"&&onClose()} style={{flex:1,border:"none",outline:"none",fontSize:".9rem",color:T.text}}/>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:T.textMuted,display:"flex"}}><Icon name="close" size={15}/></button>
+      </div>
+      {q.trim().length>=2&&<div style={{maxHeight:"320px",overflowY:"auto"}}>
+        {results.length===0?<div style={{padding:"1.5rem",textAlign:"center",color:T.textMuted,fontSize:".85rem"}}>Sin resultados para "{q}"</div>:
+        results.map((r,i)=><button key={i} onClick={()=>{onNavigate(r);onClose();}} style={{width:"100%",padding:".7rem 1rem",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:".65rem",cursor:"pointer",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background=T.bg} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+          <div style={{width:28,height:28,borderRadius:"50%",background:r.type==="patient"?T.accentBg:"#f3e8ff",border:`1px solid ${r.type==="patient"?T.accentBorder:"#e9d5ff"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <Icon name={r.type==="patient"?"patients":"clinical"} size={13} color={r.type==="patient"?T.accent:"#7c3aed"}/>
           </div>
-          <div style={{ fontSize: ".76rem", color: T.muted, textAlign: "right", flexShrink: 0, lineHeight: 1.7 }}>
-            <div style={{ fontWeight: "700", color: T.teal }}>{(p.sessions || []).length} sesiones</div>
-            <div>{(p.examFiles || []).length + (p.orderFiles || []).length} archivos</div>
-          </div>
-          <div style={{ display: "flex", gap: ".3rem" }}>
-            <button onClick={e => { e.stopPropagation(); setSelected(p); setView("form"); }} style={{ padding: ".35rem .6rem", borderRadius: "7px", border: `1px solid ${T.border}`, background: "white", cursor: "pointer" }}>✏️</button>
-            <button onClick={e => { e.stopPropagation(); del(p.id); }} style={{ padding: ".35rem .6rem", borderRadius: "7px", border: `1px solid ${T.redBg}`, background: T.redBg, cursor: "pointer" }}>🗑️</button>
-          </div>
-        </div>
-      ))}
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:"500",fontSize:".85rem",color:T.text}}>{r.label}</div><div style={{fontSize:".74rem",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sub}</div></div>
+          <div style={{fontSize:".7rem",color:T.textLight,background:T.bg,padding:".18rem .5rem",borderRadius:"4px",flexShrink:0}}>{r.type==="patient"?"Paciente":"Sesión"}</div>
+        </button>)}
+      </div>}
+      {q.trim().length<2&&<div style={{padding:"1.2rem 1rem",color:T.textLight,fontSize:".8rem"}}>Escribe al menos 2 caracteres para buscar</div>}
     </div>
-  );
+  </div>;
 }
 
 // ─── App ───────────────────────────────────────────────────────────
-const AREAS = [
-  { id: "clinical", label: "🩺 Área Clínica", sub: "Pacientes · Fichas · Sesiones" },
-  { id: "research", label: "🔬 Investigación", sub: "Evidencia científica" },
-  { id: "teaching", label: "📚 Docencia", sub: "Material para clases" },
-];
+const AREAS=[{id:"clinical",label:"Clínica",icon:"clinical"},{id:"research",label:"Investigación",icon:"research"},{id:"teaching",label:"Docencia",icon:"teaching"}];
 
-export default function App() {
-  const [area, setArea] = useState("clinical");
-  const [clinTab, setClinTab] = useState("patients");
-  const [templates, setTemplates] = useState(() => load(SK.templates) || { eval: "", session: "" });
-  const [showTpl, setShowTpl] = useState(false);
-
-  function saveTpl(t) { setTemplates(t); save(SK.templates, t); }
-
-  return (
-    <div style={{ minHeight: "100vh", background: `linear-gradient(160deg,${T.cream} 0%,#e5f2f0 100%)`, fontFamily: "Palatino,'Book Antiqua',Georgia,serif", display: "flex", flexDirection: "column" }}>
-
-      <header style={{ background: `linear-gradient(135deg,${T.charcoal},${T.slate})`, padding: ".85rem 1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: ".7rem" }}>
-          <div style={{ width: 36, height: 36, borderRadius: "9px", background: `linear-gradient(135deg,${T.teal},${T.sageL})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.15rem" }}>🦴</div>
-          <div>
-            <div style={{ color: "white", fontWeight: "800", fontSize: "1.05rem" }}>KinesioAI</div>
-            <div style={{ color: T.tealL, fontSize: ".68rem" }}>Clínica · Docencia · Investigación</div>
-          </div>
-        </div>
-        <button onClick={() => setShowTpl(true)} style={{ padding: ".42rem .85rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,.25)", background: "rgba(255,255,255,.1)", color: "white", fontWeight: "600", fontSize: ".76rem", cursor: "pointer" }}>
-          📋 Mis Formatos
-        </button>
-      </header>
-
-      <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, padding: ".55rem 1.5rem", display: "flex", gap: ".4rem", overflowX: "auto" }}>
-        {AREAS.map(a => (
-          <button key={a.id} onClick={() => setArea(a.id)} style={{ padding: ".48rem .95rem", borderRadius: "10px", border: "none", background: area === a.id ? `linear-gradient(135deg,${T.teal},${T.tealD})` : T.warm, color: area === a.id ? "white" : T.slate, fontWeight: "700", fontSize: ".81rem", cursor: "pointer", whiteSpace: "nowrap" }}>
+export default function App(){
+  const [area,setArea]=useState("clinical");
+  const [templates,setTemplates]=useState(()=>load(SK.templates)||{eval:"",session:""});
+  const [showTpl,setShowTpl]=useState(false);
+  const [showSearch,setShowSearch]=useState(false);
+  const [menuOpen,setMenuOpen]=useState(false);
+  function saveTpl(t){setTemplates(t);save(SK.templates,t);}
+  useEffect(()=>{function h(e){if((e.metaKey||e.ctrlKey)&&e.key==="k"){e.preventDefault();setShowSearch(true);}}window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[]);
+  return <>
+    <style>{FONT}</style>
+    <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column"}}>
+      <header style={{background:T.sidebar,height:"48px",display:"flex",alignItems:"center",paddingInline:"1rem",gap:".8rem",boxShadow:"0 1px 2px rgba(0,0,0,.3)",position:"sticky",top:0,zIndex:100}}>
+        
+        <nav style={{display:"flex",flex:1,height:"100%"}}>
+          {AREAS.map(a=><button key={a.id} onClick={()=>setArea(a.id)} style={{display:"flex",alignItems:"center",gap:".35rem",padding:"0 .85rem",background:"none",color:area===a.id?"white":"rgba(255,255,255,.45)",border:"none",borderBottom:area===a.id?`2px solid ${T.accent}`:"2px solid transparent",fontSize:".8rem",fontWeight:area===a.id?"600":"400",cursor:"pointer",height:"100%",transition:"color .12s"}}>
+            <Icon name={a.icon} size={13} color={area===a.id?"white":"rgba(255,255,255,.4)"}/>
             {a.label}
-          </button>
-        ))}
-      </div>
-
-      {area === "clinical" && (
-        <div style={{ background: "#f5faf9", borderBottom: `1px solid ${T.border}`, padding: ".42rem 1.5rem", display: "flex", gap: ".35rem" }}>
-          {[["patients", "👤 Pacientes"], ["clinical_ai", "🤖 IA Clínica General"]].map(([id, lbl]) => (
-            <button key={id} onClick={() => setClinTab(id)} style={{ padding: ".35rem .82rem", borderRadius: "999px", border: "none", background: clinTab === id ? T.tealL : "transparent", color: clinTab === id ? "white" : T.muted, fontWeight: "600", fontSize: ".77rem", cursor: "pointer" }}>{lbl}</button>
-          ))}
+          </button>)}
+        </nav>
+        <button onClick={()=>setShowSearch(true)} style={{display:"flex",alignItems:"center",gap:".4rem",padding:".32rem .7rem",borderRadius:"5px",border:"1px solid rgba(255,255,255,.12)",background:"rgba(255,255,255,.07)",color:"rgba(255,255,255,.55)",cursor:"pointer",fontSize:".75rem"}}>
+          <Icon name="search" size={13} color="rgba(255,255,255,.55)"/>Buscar
+        </button>
+        <div style={{position:"relative",flexShrink:0}}>
+          <button onClick={()=>setMenuOpen(p=>!p)} style={{display:"flex",alignItems:"center",padding:".32rem .5rem",borderRadius:"5px",border:"none",background:"rgba(255,255,255,.07)",color:"rgba(255,255,255,.6)",cursor:"pointer"}}><Icon name="menu" size={15} color="rgba(255,255,255,.6)"/></button>
+          {menuOpen&&<><div style={{position:"fixed",inset:0,zIndex:150}} onClick={()=>setMenuOpen(false)}/>
+          <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:T.surface,borderRadius:"8px",boxShadow:"0 8px 24px rgba(0,0,0,.12)",border:`1px solid ${T.border}`,minWidth:"200px",zIndex:200,overflow:"hidden"}}>
+            {[{label:"Formatos de fichas",icon:"file",fn:()=>{setShowTpl(true);setMenuOpen(false);}},{label:"Google Calendar",icon:"agenda",fn:()=>{window.open("https://calendar.google.com","_blank");setMenuOpen(false);}},{label:"AgendaPro",icon:"star",fn:()=>{window.open("https://agendapro.com","_blank");setMenuOpen(false);}}].map((x,i)=><button key={i} onClick={x.fn} style={{width:"100%",padding:".65rem .95rem",background:"none",border:"none",display:"flex",alignItems:"center",gap:".5rem",fontSize:".83rem",color:T.text,cursor:"pointer",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background=T.bg} onMouseLeave={e=>e.currentTarget.style.background="none"}><Icon name={x.icon} size={13} color={T.accent}/>{x.label}</button>)}
+          </div></>}
         </div>
-      )}
-
-      <main style={{ flex: 1, padding: "1.1rem 1.5rem", maxWidth: "920px", width: "100%", margin: "0 auto", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
-        <div style={{ background: T.white, borderRadius: "17px", padding: "1.3rem", boxShadow: "0 4px 24px rgba(0,0,0,.06)", border: `1px solid ${T.border}`, flex: 1, display: "flex", flexDirection: "column", minHeight: "500px" }}>
-
-          {area === "clinical" && clinTab === "patients" && (
-            <><div style={{ fontWeight: "800", fontSize: "1.05rem", color: T.charcoal, marginBottom: ".9rem" }}>👤 Mis Pacientes</div><PatientsModule templates={templates} /></>
-          )}
-
-          {area === "clinical" && clinTab === "clinical_ai" && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <div style={{ fontWeight: "800", fontSize: "1.05rem", color: T.charcoal, marginBottom: ".25rem" }}>🤖 IA Clínica General</div>
-              <div style={{ fontSize: ".78rem", color: T.muted, marginBottom: ".9rem" }}>Consultas clínicas, protocolos, diagnóstico diferencial, planificación de tratamientos</div>
-              <div style={{ flex: 1 }}>
-                <AIChat key="clin" system="Eres una kinesióloga clínica con actualización constante en evidencia. Respondes con criterio clínico profesional, razonamiento basado en evidencia actualizada. Puedes orientar sobre diagnóstico diferencial, técnicas de evaluación, protocolos de tratamiento, y abordajes kinesiológicos."
-                  placeholder="Consulta clínica, protocolo, diagnóstico diferencial..."
-                  suggestions={["Protocolo de evaluación para dolor de hombro", "¿Cómo diferenciar tendinopatía de bursitis?", "Abordaje kinesiológico post ACV", "Criterios de alta en rehab de rodilla"]} />
-              </div>
-            </div>
-          )}
-
-          {area === "research" && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <div style={{ fontWeight: "800", fontSize: "1.05rem", color: T.charcoal, marginBottom: ".25rem" }}>🔬 Investigación Científica</div>
-              <div style={{ fontSize: ".78rem", color: T.muted, marginBottom: ".9rem" }}>Evidencia actualizada, análisis de estudios, revisiones sistemáticas, estado del arte en kinesiología</div>
-              <div style={{ flex: 1 }}>
-                <AIChat key="res" system="Eres una investigadora experta en kinesiología, fisioterapia y rehabilitación. Conoces profundamente la literatura científica actualizada. Citas evidencia real (autores, años, revistas), explicas nivel de evidencia (GRADE, PEDro, etc.), señalas limitaciones de estudios, y sintetizas hallazgos de forma práctica y rigurosa."
-                  placeholder="¿Qué evidencia existe sobre...?"
-                  suggestions={["Evidencia actual del dry needling en dolor miofascial", "Ejercicio vs terapia manual en lumbalgia crónica", "¿Qué dice la evidencia sobre kinesiotaping?", "Guías clínicas en rehabilitación de hombro 2024-2025"]} />
-              </div>
-            </div>
-          )}
-
-          {area === "teaching" && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-              <div style={{ fontWeight: "800", fontSize: "1.05rem", color: T.charcoal, marginBottom: ".25rem" }}>📚 Docencia</div>
-              <div style={{ fontSize: ".78rem", color: T.muted, marginBottom: ".9rem" }}>Material didáctico, casos clínicos, evaluaciones, guías prácticas y recursos para estudiantes</div>
-              <div style={{ flex: 1 }}>
-                <AIChat key="teach" system="Eres una docente universitaria experta en kinesiología con amplia experiencia pedagógica en ciencias de la salud. Ayudas a preparar clases, casos clínicos complejos con preguntas orientadoras, rúbricas de evaluación, esquemas conceptuales, guías prácticas y recursos educativos de alta calidad. Estructuras el contenido con objetivos de aprendizaje claros, ejemplos reales, y base en evidencia actualizada."
-                  placeholder="¿Qué material necesitas preparar?"
-                  suggestions={["Caso clínico LCA para alumnos de 3er año con preguntas", "Esquema de biomecánica de la marcha (clase 60 min)", "10 preguntas de evaluación sobre SNC y movimiento", "Guía práctica de evaluación de hombro para estudiantes"]} />
-              </div>
-            </div>
-          )}
+      </header>
+      <main style={{flex:1,padding:"1.2rem 1.5rem",maxWidth:"980px",width:"100%",margin:"0 auto",boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
+        <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"500px"}}>
+          {area==="clinical"&&<ClinicalModule templates={templates} onOpenTemplates={()=>setShowTpl(true)}/>}
+          {area==="research"&&<ResearchModule/>}
+          {area==="teaching"&&<TeachingModule/>}
         </div>
       </main>
-
-      {showTpl && <TemplateManager templates={templates} onSave={saveTpl} onClose={() => setShowTpl(false)} />}
+      {showTpl&&<TemplateManager templates={templates} onSave={saveTpl} onClose={()=>setShowTpl(false)}/>}
+      {showSearch&&<GlobalSearch onClose={()=>setShowSearch(false)} onNavigate={r=>{setArea("clinical");}}/>}
     </div>
-  );
+  </>;
 }
