@@ -1,6 +1,25 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// ─── Storage ───────────────────────────────────────────────────────
+// ─── Supabase ──────────────────────────────────────────────────────
+const SUPA_URL = "https://xpomyearwffkktjeuirp.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhwb215ZWFyd2Zma2t0amV1aXJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxMjIwOTYsImV4cCI6MjA5MzY5ODA5Nn0.64X5hEpMWWcdWRMYd947XGzjLKEDFrV6DMo5SLR6J6E";
+const supabase = createClient(SUPA_URL, SUPA_KEY);
+
+// ─── Cloud Storage ─────────────────────────────────────────────────
+async function cloudLoad(userId, key) {
+  try {
+    const { data } = await supabase.from("user_data").select("value").eq("user_id", userId).eq("key", key).single();
+    return data?.value ?? null;
+  } catch { return null; }
+}
+async function cloudSave(userId, key, value) {
+  try {
+    await supabase.from("user_data").upsert({ user_id: userId, key, value, updated_at: new Date().toISOString() }, { onConflict: "user_id,key" });
+  } catch(e) { console.error("cloudSave error", e); }
+}
+
+// ─── Local Storage fallback ────────────────────────────────────────
 const SK = { patients:"kinesio_patients_v3", templates:"kinesio_templates_v2", agenda:"kinesio_agenda_v1", subjects:"kinesio_subjects_v1", projects:"kinesio_projects_v1" };
 const load = k => { try { const r=localStorage.getItem(k); return r?JSON.parse(r):null; } catch { return null; } };
 const save = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch {} };
@@ -145,7 +164,7 @@ function Card({children,style={}}){return <div style={{background:T.surface,bord
 
 function SubTab({tabs,active,onChange}){
   return <div style={{display:"flex",borderBottom:`1px solid ${T.border}`,marginBottom:"1rem",gap:"0"}}>
-    {tabs.map(t=><button key={t.id} onClick={()=>onChange(t.id)} style={{padding:".48rem .85rem",border:"none",background:"none",fontWeight:active===t.id?"600":"400",fontSize:".8rem",color:active===t.id?T.accent:T.textMuted,borderBottom:active===t.id?`2px solid ${T.accent}`:"2px solid transparent",marginBottom:"-1px",cursor:"pointer",transition:"color .15s"}}>{t.label}</button>)}
+    {tabs.map(t=><button key={t.id} onClick={()=>onChange(t.id)} style={{display:"flex",alignItems:"center",gap:".3rem",padding:".48rem .85rem",border:"none",background:"none",fontWeight:active===t.id?"600":"400",fontSize:".8rem",color:active===t.id?T.accent:T.textMuted,borderBottom:active===t.id?`2px solid ${T.accent}`:"2px solid transparent",marginBottom:"-1px",cursor:"pointer",transition:"color .15s"}}>{t.icon&&<Icon name={t.icon} size={12} color={active===t.id?T.accent:T.textMuted}/>}{t.label}</button>)}
   </div>;
 }
 
@@ -249,11 +268,17 @@ function AgendaModule(){
   const [form,setForm]=useState({title:"",date:selectedDate,time:"09:00",duration:"60",patient:"",notes:""});
   function persist(list){setEvents(list);save(SK.agenda,list);}
   function addEvent(){persist([...events,{id:uid(),...form}]);setShowAdd(false);setForm({title:"",date:selectedDate,time:"09:00",duration:"60",patient:"",notes:""});}
+  const today2=new Date().toISOString().slice(0,10);
   const dayEvents=events.filter(e=>e.date===selectedDate).sort((a,b)=>a.time.localeCompare(b.time));
+  const pastEvents=events.filter(e=>e.date<today2);
   const today=new Date().toISOString().slice(0,10);
+  const pastCount=events.filter(e=>e.date<today).length;
   return <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div style={{fontWeight:"600",color:T.text,fontSize:".9rem"}}>Agenda</div>
+      <div style={{display:"flex",alignItems:"center",gap:".6rem"}}>
+        <div style={{fontWeight:"600",color:T.text,fontSize:".9rem"}}>Agenda</div>
+        {pastCount>0&&<button onClick={()=>persist(events.filter(e=>e.date>=today))} style={{fontSize:".72rem",color:T.red,background:T.redBg,border:"1px solid #fecaca",borderRadius:"5px",padding:".18rem .55rem",cursor:"pointer",fontWeight:"500"}}>Archivar {pastCount} pasada{pastCount>1?"s":""}</button>}
+      </div>
       <div style={{display:"flex",gap:".45rem"}}>
         <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:".3rem",padding:".38rem .75rem",borderRadius:"6px",border:`1px solid ${T.border}`,background:T.surface,color:T.graphite,fontSize:".76rem",fontWeight:"500",textDecoration:"none"}}><Icon name="link" size={12} color={T.textMuted}/>Google Calendar</a>
         <Btn onClick={()=>{setForm(p=>({...p,date:selectedDate}));setShowAdd(true);}} icon="plus" size="sm">Nueva cita</Btn>
@@ -359,7 +384,7 @@ function PatientDetail({patient,templates,onBack,onUpdate}){
   const [homeLoading,setHomeLoading]=useState(false);const [homeResult,setHomeResult]=useState("");
   function upd(c){onUpdate({...patient,...c});}
   async function genHome(){setHomeLoading(true);setHomeResult("");await askClaude("Eres kinesióloga experta. Genera programas de ejercicios domiciliarios detallados en lenguaje claro para el paciente.",[{role:"user",content:`Programa para: ${patient.name}, ${patient.age}a, Dx: ${patient.diagnosis}. ${(patient.sessions||[]).length} sesiones. Incluye: nombre, descripción simple, series, reps, frecuencia, señales de alerta.`}],c=>setHomeResult(c));setHomeLoading(false);}
-  const tabs=[{id:"overview",label:"Resumen"},{id:"eval",label:"Evaluación"},{id:"sessions",label:`Sesiones (${(patient.sessions||[]).length})`},{id:"exams",label:"Exámenes"},{id:"exercises",label:"Ejercicios"},{id:"ai",label:"Asistente IA"}];
+  const tabs=[{id:"overview",label:"Resumen",ic:"chart"},{id:"eval",label:"Evaluación",ic:"file"},{id:"sessions",label:`Sesiones (${(patient.sessions||[]).length})`,ic:"agenda"},{id:"exams",label:"Exámenes",ic:"research"},{id:"exercises",label:"Ejercicios",ic:"star"},{id:"ai",label:"IA",ic:"ai"}];
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
     {showGenEval&&<GenerateFicha patient={patient} type="eval" template={templates.eval} onClose={()=>setShowGenEval(false)} onSave={(t,f)=>upd({evalFicha:t,evalFiles:f})}/>}
     {showGenSess&&<GenerateFicha patient={patient} type="session" template={templates.session} onClose={()=>setShowGenSess(false)} onSave={(t,f)=>upd({sessions:[...(patient.sessions||[]),{id:uid(),date:sessDate,notes:"",ficha:t,files:f,createdAt:new Date().toISOString()}]})}/>}
@@ -419,9 +444,9 @@ function PatientDetail({patient,templates,onBack,onUpdate}){
 }
 
 // ─── Patients ─────────────────────────────────────────────────────
-function PatientsModule({templates}){
+function PatientsModule({templates,syncSave}){
   const [patients,setPatients]=useState(()=>load(SK.patients)||[]);const [view,setView]=useState("list");const [selected,setSelected]=useState(null);const [search,setSearch]=useState("");const [form,setForm]=useState({name:"",age:"",diagnosis:"",notes:""});
-  function persist(l){setPatients(l);save(SK.patients,l);}
+  function persist(l){setPatients(l);if(typeof syncSave==='function')syncSave(SK.patients,l);else save(SK.patients,l);}
   function saveP(){const base={sessions:[],examFiles:[],orderFiles:[]};const l=selected?.id?patients.map(p=>p.id===selected.id?{...p,...form}:p):[...patients,{...base,id:uid(),...form}];persist(l);setView("list");setSelected(null);}
   function updP(u){const l=patients.map(p=>p.id===u.id?u:p);persist(l);setSelected(u);}
   const filtered=patients.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||(p.diagnosis||"").toLowerCase().includes(search.toLowerCase()));
@@ -456,9 +481,9 @@ function PatientsModule({templates}){
 function ResearchModule(){
   const [tab,setTab]=useState("ia");
   const [projects,setProjects]=useState(()=>load(SK.projects)||[]);const [showAdd,setShowAdd]=useState(false);const [newP,setNewP]=useState({title:"",description:""});
-  const [summaries,setSummaries]=useState([]);const [sInput,setSInput]=useState("");const [sLoading,setSLoading]=useState(false);
+  const [summaries,setSummaries]=useState(()=>load('kinesio_summaries_v1')||[]);const [sInput,setSInput]=useState("");const [sLoading,setSLoading]=useState(false);const [sDeleting,setSDeleting]=useState(null);
   function persistP(l){setProjects(l);save(SK.projects,l);}
-  async function addSummary(){if(!sInput.trim())return;setSLoading(true);let r="";await askClaude("Eres investigadora experta en kinesiología. Resume artículos científicos estructuradamente: objetivo, metodología, resultados, nivel de evidencia, aplicación clínica.",[{role:"user",content:`Resume: ${sInput}`}],c=>r=c);setSummaries(p=>[{id:uid(),query:sInput,result:r,date:new Date().toLocaleDateString()},...p]);setSInput("");setSLoading(false);}
+  async function addSummary(){if(!sInput.trim())return;setSLoading(true);let r="";await askClaude("Eres investigadora experta en kinesiología. Resume artículos científicos estructuradamente: objetivo, metodología, resultados, nivel de evidencia, aplicación clínica.",[{role:"user",content:`Resume: ${sInput}`}],c=>r=c);setSummaries(p=>{const n=[{id:uid(),query:sInput,result:r,date:new Date().toLocaleDateString()},...p];save('kinesio_summaries_v1',n);return n;});setSInput("");setSLoading(false);}
   const tabs=[{id:"ia",label:"Investigación con IA"},{id:"projects",label:"Proyectos"},{id:"summaries",label:"Resúmenes"}];
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
@@ -477,7 +502,14 @@ function ResearchModule(){
     </div>}
     {tab==="summaries"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
       <div style={{display:"flex",gap:".45rem"}}><input value={sInput} onChange={e=>setSInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSummary()} placeholder="Pega un tema, resumen o DOI para resumir..." style={{flex:1,padding:".52rem .8rem",borderRadius:"6px",border:`1px solid ${T.border}`,fontSize:".84rem",outline:"none"}} onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/><Btn onClick={addSummary} disabled={sLoading||!sInput.trim()} icon="ai">{sLoading?"...":"Resumir"}</Btn></div>
-      {summaries.map(s=><Card key={s.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:".4rem"}}><div style={{fontWeight:"500",fontSize:".8rem",color:T.text}}>{s.query}</div><div style={{fontSize:".71rem",color:T.textLight}}>{s.date}</div></div><Md text={s.result}/></Card>)}
+      {summaries.length===0&&<div style={{textAlign:"center",color:T.textLight,padding:"2rem",fontSize:".85rem"}}>Los resúmenes se guardan aquí automáticamente.</div>}
+      {summaries.map(s=><Card key={s.id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:".4rem"}}>
+        <div style={{fontWeight:"500",fontSize:".8rem",color:T.text,flex:1,paddingRight:".5rem"}}>{s.query}</div>
+        <div style={{display:"flex",alignItems:"center",gap:".5rem",flexShrink:0}}>
+          <div style={{fontSize:".71rem",color:T.textLight}}>{s.date}</div>
+          <button onClick={()=>setSummaries(p=>{const n=p.filter(x=>x.id!==s.id);save('kinesio_summaries_v1',n);return n;})} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:0,display:"flex"}}><Icon name="trash" size={13}/></button>
+        </div>
+      </div><Md text={s.result}/></Card>)}
     </div>}
   </div>;
 }
@@ -556,7 +588,6 @@ function SubjectDetail({subject,onUpdate,onBack}){
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
     {/* Header */}
     <div style={{display:"flex",alignItems:"center",gap:".8rem",marginBottom:".9rem",paddingBottom:".9rem",borderBottom:`1px solid ${T.border}`}}>
-      <button onClick={onBack} style={{background:"none",border:"none",color:T.accent,cursor:"pointer",fontWeight:"500",fontSize:".83rem",display:"flex",alignItems:"center",gap:".25rem",flexShrink:0}}><Icon name="chevLeft" size={13} color={T.accent}/>Asignaturas</button>
       <div style={{position:"relative",flexShrink:0}}>
         <input type="color" value={subject.color||"#1e4d8c"} onChange={ev=>onUpdate({...subject,color:ev.target.value})}
           style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%",border:"none",padding:0}}
@@ -564,7 +595,6 @@ function SubjectDetail({subject,onUpdate,onBack}){
         <div style={{width:18,height:18,borderRadius:"50%",background:col.bg,cursor:"pointer",boxShadow:"0 0 0 2px white, 0 0 0 3px "+col.bg,transition:"background .2s"}}/>
       </div>
       <div style={{fontWeight:"700",fontSize:".95rem",color:T.text,flex:1}}>{subject.name}</div>
-      <div style={{fontSize:".72rem",color:T.textMuted,fontWeight:"400"}}>Clic en el círculo para cambiar color</div>
     </div>
 
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
@@ -769,13 +799,13 @@ function TeachingModule(){
 }
 
 // ─── Clinical ─────────────────────────────────────────────────────
-function ClinicalModule({templates,onOpenTemplates}){
+function ClinicalModule({templates,onOpenTemplates,syncSave}){
   const [tab,setTab]=useState("agenda");
   const tabs=[{id:"agenda",label:"Agenda"},{id:"patients",label:"Pacientes"},{id:"ia",label:"Asistente IA"},{id:"settings",label:"Ajustes"}];
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
     {tab==="agenda"&&<AgendaModule/>}
-    {tab==="patients"&&<PatientsModule templates={templates}/>}
+    {tab==="patients"&&<PatientsModule templates={templates} syncSave={syncSave}/>}
     {tab==="ia"&&<div style={{flex:1}}><AIChat key="clin" system="Eres kinesióloga clínica con actualización constante en evidencia. Respondes con criterio clínico profesional. Orientas sobre diagnóstico diferencial, evaluación, protocolos y abordajes kinesiológicos." placeholder="Consulta clínica, protocolo, diagnóstico diferencial..." suggestions={["Protocolo evaluación dolor de hombro","¿Diferenciar tendinopatía de bursitis?","Abordaje kinesiológico post ACV","Criterios de alta rehabilitación rodilla"]}/></div>}
     {tab==="settings"&&<div style={{display:"flex",flexDirection:"column",gap:".85rem"}}>
       <div style={{fontWeight:"600",color:T.text,fontSize:".88rem"}}>Ajustes del Área Clínica</div>
@@ -789,15 +819,23 @@ function GlobalSearch({onClose,onNavigate}){
   const [q,setQ]=useState("");const inputRef=useRef(null);
   useEffect(()=>inputRef.current?.focus(),[]);
   const patients=useMemo(()=>load(SK.patients)||[],[]);
+  const subjects=useMemo(()=>load(SK.subjects)||[],[]);
+  const projects=useMemo(()=>load(SK.projects)||[],[]);
   const results=useMemo(()=>{
     if(q.trim().length<2)return[];
     const ql=q.toLowerCase();const res=[];
     patients.forEach(p=>{
-      if(p.name.toLowerCase().includes(ql)||p.diagnosis?.toLowerCase().includes(ql))res.push({type:"patient",label:p.name,sub:p.diagnosis||"Sin diagnóstico",id:p.id,data:p});
-      (p.sessions||[]).forEach(s=>{if(s.notes?.toLowerCase().includes(ql)||s.ficha?.toLowerCase().includes(ql))res.push({type:"session",label:`Sesión — ${p.name}`,sub:s.date,id:s.id,data:p});});
+      if(p.name.toLowerCase().includes(ql)||p.diagnosis?.toLowerCase().includes(ql))res.push({type:"patient",label:p.name,sub:p.diagnosis||"Sin diagnóstico",id:p.id});
+      (p.sessions||[]).forEach(s=>{if(s.notes?.toLowerCase().includes(ql)||s.ficha?.toLowerCase().includes(ql))res.push({type:"session",label:`Sesión — ${p.name}`,sub:s.date,id:s.id});});
     });
-    return res.slice(0,8);
-  },[q,patients]);
+    subjects.forEach(s=>{
+      if(s.name.toLowerCase().includes(ql)||s.notes?.toLowerCase().includes(ql))res.push({type:"subject",label:s.name,sub:"Asignatura",id:s.id});
+    });
+    projects.forEach(p=>{
+      if(p.title.toLowerCase().includes(ql)||p.description?.toLowerCase().includes(ql))res.push({type:"project",label:p.title,sub:"Proyecto de investigación",id:p.id});
+    });
+    return res.slice(0,10);
+  },[q,patients,subjects,projects]);
   return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:2000,paddingTop:"12vh"}}>
     <div style={{background:T.surface,borderRadius:"10px",width:"100%",maxWidth:"520px",boxShadow:"0 20px 60px rgba(0,0,0,.2)",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",gap:".6rem",padding:".85rem 1rem",borderBottom:`1px solid ${T.border}`}}>
@@ -808,11 +846,21 @@ function GlobalSearch({onClose,onNavigate}){
       {q.trim().length>=2&&<div style={{maxHeight:"320px",overflowY:"auto"}}>
         {results.length===0?<div style={{padding:"1.5rem",textAlign:"center",color:T.textMuted,fontSize:".85rem"}}>Sin resultados para "{q}"</div>:
         results.map((r,i)=><button key={i} onClick={()=>{onNavigate(r);onClose();}} style={{width:"100%",padding:".7rem 1rem",background:"none",border:"none",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:".65rem",cursor:"pointer",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background=T.bg} onMouseLeave={e=>e.currentTarget.style.background="none"}>
-          <div style={{width:28,height:28,borderRadius:"50%",background:r.type==="patient"?T.accentBg:"#f3e8ff",border:`1px solid ${r.type==="patient"?T.accentBorder:"#e9d5ff"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Icon name={r.type==="patient"?"patients":"clinical"} size={13} color={r.type==="patient"?T.accent:"#7c3aed"}/>
-          </div>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:"500",fontSize:".85rem",color:T.text}}>{r.label}</div><div style={{fontSize:".74rem",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sub}</div></div>
-          <div style={{fontSize:".7rem",color:T.textLight,background:T.bg,padding:".18rem .5rem",borderRadius:"4px",flexShrink:0}}>{r.type==="patient"?"Paciente":"Sesión"}</div>
+          {(()=>{
+            const cfg={
+              patient:{bg:T.accentBg,border:T.accentBorder,icon:"patients",color:T.accent,label:"Paciente"},
+              session:{bg:"#f0fdf4",border:"#bbf7d0",icon:"clinical",color:"#16a34a",label:"Sesión"},
+              subject:{bg:"#fdf4ff",border:"#e9d5ff",icon:"teaching",color:"#7c3aed",label:"Asignatura"},
+              project:{bg:"#fff7ed",border:"#fed7aa",icon:"research",color:"#ea580c",label:"Proyecto"},
+            }[r.type]||{bg:T.bg,border:T.border,icon:"file",color:T.textMuted,label:r.type};
+            return <>
+              <div style={{width:28,height:28,borderRadius:"50%",background:cfg.bg,border:`1px solid ${cfg.border}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <Icon name={cfg.icon} size={13} color={cfg.color}/>
+              </div>
+              <div style={{flex:1,minWidth:0}}><div style={{fontWeight:"500",fontSize:".85rem",color:T.text}}>{r.label}</div><div style={{fontSize:".74rem",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.sub}</div></div>
+              <div style={{fontSize:".7rem",color:cfg.color,background:cfg.bg,border:`1px solid ${cfg.border}`,padding:".18rem .55rem",borderRadius:"4px",flexShrink:0,fontWeight:"500"}}>{cfg.label}</div>
+            </>;
+          })()}
         </button>)}
       </div>}
       {q.trim().length<2&&<div style={{padding:"1.2rem 1rem",color:T.textLight,fontSize:".8rem"}}>Escribe al menos 2 caracteres para buscar</div>}
@@ -820,17 +868,156 @@ function GlobalSearch({onClose,onNavigate}){
   </div>;
 }
 
+
+// ─── Login Screen ──────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState("login"); // login | register | forgot
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function handleSubmit() {
+    if (!email.trim() || !password.trim()) { setError("Completa todos los campos."); return; }
+    setLoading(true); setError(""); setSuccess("");
+    try {
+      if (mode === "register") {
+        const { error: e } = await supabase.auth.signUp({ email, password });
+        if (e) throw e;
+        setSuccess("Cuenta creada. Ya puedes iniciar sesión.");
+        setMode("login");
+      } else {
+        const { data, error: e } = await supabase.auth.signInWithPassword({ email, password });
+        if (e) throw e;
+        onLogin(data.user);
+      }
+    } catch(e) {
+      setError(e.message === "Invalid login credentials" ? "Email o contraseña incorrectos." : e.message);
+    }
+    setLoading(false);
+  }
+
+  async function handleForgot() {
+    if (!email.trim()) { setError("Ingresa tu email primero."); return; }
+    setLoading(true); setError(""); setSuccess("");
+    const { error: e } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if (e) setError(e.message);
+    else setSuccess("Revisa tu email para restablecer la contraseña.");
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#f4f5f7", display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem" }}>
+      <div style={{ background:"#ffffff", borderRadius:"12px", padding:"2.2rem", width:"100%", maxWidth:"380px", boxShadow:"0 4px 24px rgba(0,0,0,.09)", border:"1px solid #e5e7eb" }}>
+        {/* Logo */}
+        <div style={{ display:"flex", alignItems:"center", gap:".7rem", marginBottom:"1.8rem", justifyContent:"center" }}>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="#1e4d8c"/>
+            <path d="M16 7v18M10 13l6-6 6 6M10 19l6 6 6-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <div>
+            <div style={{ fontWeight:"700", fontSize:"1.1rem", color:"#111827" }}>KinesioAI</div>
+            <div style={{ fontSize:".72rem", color:"#6b7280" }}>Clínica · Docencia · Investigación</div>
+          </div>
+        </div>
+
+        <div style={{ fontWeight:"600", fontSize:".95rem", color:"#111827", marginBottom:"1.2rem", textAlign:"center" }}>
+          {mode === "login" ? "Iniciar sesión" : mode === "register" ? "Crear cuenta" : "Recuperar contraseña"}
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:".75rem" }}>
+          <div>
+            <label style={{ fontSize:".75rem", fontWeight:"600", color:"#6b7280", display:"block", marginBottom:".25rem", textTransform:"uppercase", letterSpacing:".03em" }}>Email</label>
+            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(mode==="forgot"?handleForgot():handleSubmit())}
+              placeholder="tu@email.com" style={{ width:"100%", padding:".6rem .85rem", borderRadius:"7px", border:"1px solid #e5e7eb", fontSize:".88rem", outline:"none", color:"#111827" }}
+              onFocus={e=>e.target.style.borderColor="#1e4d8c"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+          </div>
+          {mode !== "forgot" && <div>
+            <label style={{ fontSize:".75rem", fontWeight:"600", color:"#6b7280", display:"block", marginBottom:".25rem", textTransform:"uppercase", letterSpacing:".03em" }}>Contraseña</label>
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+              placeholder="••••••••" style={{ width:"100%", padding:".6rem .85rem", borderRadius:"7px", border:"1px solid #e5e7eb", fontSize:".88rem", outline:"none", color:"#111827" }}
+              onFocus={e=>e.target.style.borderColor="#1e4d8c"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+          </div>}
+
+          {error && <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:"6px", padding:".55rem .8rem", fontSize:".8rem", color:"#dc2626" }}>{error}</div>}
+          {success && <div style={{ background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:"6px", padding:".55rem .8rem", fontSize:".8rem", color:"#16a34a" }}>{success}</div>}
+
+          <button onClick={mode === "forgot" ? handleForgot : handleSubmit} disabled={loading}
+            style={{ padding:".65rem", borderRadius:"7px", border:"none", background:loading?"#6b7280":"#1e4d8c", color:"white", fontWeight:"600", fontSize:".88rem", cursor:loading?"not-allowed":"pointer", marginTop:".2rem" }}>
+            {loading ? "..." : mode === "login" ? "Entrar" : mode === "register" ? "Crear cuenta" : "Enviar email"}
+          </button>
+        </div>
+
+        <div style={{ marginTop:"1.2rem", display:"flex", flexDirection:"column", gap:".5rem", alignItems:"center" }}>
+          {mode === "login" && <>
+            <button onClick={()=>{setMode("register");setError("");setSuccess("");}} style={{ background:"none", border:"none", cursor:"pointer", fontSize:".82rem", color:"#1e4d8c", fontWeight:"500" }}>¿No tienes cuenta? Crear una</button>
+            <button onClick={()=>{setMode("forgot");setError("");setSuccess("");}} style={{ background:"none", border:"none", cursor:"pointer", fontSize:".78rem", color:"#6b7280" }}>Olvidé mi contraseña</button>
+          </>}
+          {mode !== "login" && <button onClick={()=>{setMode("login");setError("");setSuccess("");}} style={{ background:"none", border:"none", cursor:"pointer", fontSize:".82rem", color:"#1e4d8c", fontWeight:"500" }}>← Volver al inicio de sesión</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ───────────────────────────────────────────────────────────
 const AREAS=[{id:"clinical",label:"Clínica",icon:"clinical"},{id:"research",label:"Investigación",icon:"research"},{id:"teaching",label:"Docencia",icon:"teaching"}];
 
 export default function App(){
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [area,setArea]=useState("clinical");
   const [templates,setTemplates]=useState(()=>load(SK.templates)||{eval:"",session:""});
   const [showTpl,setShowTpl]=useState(false);
   const [showSearch,setShowSearch]=useState(false);
   const [menuOpen,setMenuOpen]=useState(false);
-  function saveTpl(t){setTemplates(t);save(SK.templates,t);}
+
+  // Auth listener
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{
+      if(session?.user){ setUser(session.user); loadCloudData(session.user); }
+      setAuthLoading(false);
+    });
+    const {data:{subscription}} = supabase.auth.onAuthStateChange((_event,session)=>{
+      if(session?.user){ setUser(session.user); }
+      else { setUser(null); }
+    });
+    return ()=>subscription.unsubscribe();
+  },[]);
+
+  // Load all data from cloud on login
+  async function loadCloudData(u) {
+    setSyncing(true);
+    const keys = Object.values(SK);
+    for (const k of keys) {
+      const cloudVal = await cloudLoad(u.id, k);
+      if (cloudVal !== null) {
+        save(k, cloudVal);
+        if (k === SK.templates) setTemplates(cloudVal);
+      }
+    }
+    setSyncing(false);
+  }
+
+  // Save to both local and cloud
+  function syncSave(k, v) {
+    save(k, v);
+    if (user) cloudSave(user.id, k, v);
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setUser(null);
+    setMenuOpen(false);
+  }
+
+  function saveTpl(t){setTemplates(t);syncSave(SK.templates,t);}
   useEffect(()=>{function h(e){if((e.metaKey||e.ctrlKey)&&e.key==="k"){e.preventDefault();setShowSearch(true);}}window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[]);
+
+  if(authLoading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f4f5f7",color:"#6b7280",fontSize:".9rem"}}>Cargando...</div>;
+  if(!user) return <LoginScreen onLogin={u=>{setUser(u);loadCloudData(u);}}/>;
   return <>
     <style>{FONT}</style>
     <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column"}}>
@@ -849,13 +1036,20 @@ export default function App(){
           <button onClick={()=>setMenuOpen(p=>!p)} style={{display:"flex",alignItems:"center",padding:".32rem .5rem",borderRadius:"5px",border:"none",background:"rgba(255,255,255,.07)",color:"rgba(255,255,255,.6)",cursor:"pointer"}}><Icon name="menu" size={15} color="rgba(255,255,255,.6)"/></button>
           {menuOpen&&<><div style={{position:"fixed",inset:0,zIndex:150}} onClick={()=>setMenuOpen(false)}/>
           <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:T.surface,borderRadius:"8px",boxShadow:"0 8px 24px rgba(0,0,0,.12)",border:`1px solid ${T.border}`,minWidth:"200px",zIndex:200,overflow:"hidden"}}>
-            {[{label:"Formatos de fichas",icon:"file",fn:()=>{setShowTpl(true);setMenuOpen(false);}},{label:"Google Calendar",icon:"agenda",fn:()=>{window.open("https://calendar.google.com","_blank");setMenuOpen(false);}},{label:"AgendaPro",icon:"star",fn:()=>{window.open("https://agendapro.com","_blank");setMenuOpen(false);}}].map((x,i)=><button key={i} onClick={x.fn} style={{width:"100%",padding:".65rem .95rem",background:"none",border:"none",display:"flex",alignItems:"center",gap:".5rem",fontSize:".83rem",color:T.text,cursor:"pointer",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background=T.bg} onMouseLeave={e=>e.currentTarget.style.background="none"}><Icon name={x.icon} size={13} color={T.accent}/>{x.label}</button>)}
+            <div style={{padding:".6rem .95rem",borderBottom:`1px solid ${T.border}`,marginBottom:".2rem"}}>
+              <div style={{fontSize:".78rem",fontWeight:"600",color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</div>
+              <div style={{fontSize:".7rem",color:T.textMuted,marginTop:".1rem",display:"flex",alignItems:"center",gap:".3rem"}}><div style={{width:6,height:6,borderRadius:"50%",background:syncing?"#f59e0b":"#16a34a"}}/>{syncing?"Sincronizando...":"Sincronizado"}</div>
+            </div>
+          {[{label:"Formatos de fichas",icon:"file",fn:()=>{setShowTpl(true);setMenuOpen(false);}},{label:"Google Calendar",icon:"agenda",fn:()=>{window.open("https://calendar.google.com","_blank");setMenuOpen(false);}},{label:"AgendaPro",icon:"star",fn:()=>{window.open("https://agendapro.com","_blank");setMenuOpen(false);}}].map((x,i)=><button key={i} onClick={x.fn} style={{width:"100%",padding:".65rem .95rem",background:"none",border:"none",display:"flex",alignItems:"center",gap:".5rem",fontSize:".83rem",color:T.text,cursor:"pointer",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background=T.bg} onMouseLeave={e=>e.currentTarget.style.background="none"}><Icon name={x.icon} size={13} color={T.accent}/>{x.label}</button>)}
+          <div style={{borderTop:`1px solid ${T.border}`,marginTop:".2rem"}}>
+            <button onClick={handleLogout} style={{width:"100%",padding:".65rem .95rem",background:"none",border:"none",display:"flex",alignItems:"center",gap:".5rem",fontSize:".83rem",color:T.red,cursor:"pointer",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background=T.redBg} onMouseLeave={e=>e.currentTarget.style.background="none"}><Icon name="close" size={13} color={T.red}/>Cerrar sesión</button>
+          </div>
           </div></>}
         </div>
       </header>
       <main style={{flex:1,padding:"1.2rem 1.5rem",maxWidth:"980px",width:"100%",margin:"0 auto",boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
         <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"500px"}}>
-          {area==="clinical"&&<ClinicalModule templates={templates} onOpenTemplates={()=>setShowTpl(true)}/>}
+          {area==="clinical"&&<ClinicalModule templates={templates} onOpenTemplates={()=>setShowTpl(true)} syncSave={syncSave}/>}
           {area==="research"&&<ResearchModule/>}
           {area==="teaching"&&<TeachingModule/>}
         </div>
