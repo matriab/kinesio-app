@@ -483,18 +483,20 @@ function ResearchModule(){
 }
 
 // ─── Teaching ─────────────────────────────────────────────────────
-// ─── Subject Colors ───────────────────────────────────────────────
-const SUBJECT_COLORS = [
-  {id:"navy",  bg:"#1e4d8c", light:"#eef3fb", border:"#b8cfe8"},
-  {id:"slate", bg:"#475569", light:"#f1f5f9", border:"#cbd5e1"},
-  {id:"teal",  bg:"#0f766e", light:"#f0fdfa", border:"#99f6e4"},
-  {id:"violet",bg:"#6d28d9", light:"#f5f3ff", border:"#ddd6fe"},
-  {id:"rose",  bg:"#be123c", light:"#fff1f2", border:"#fecdd3"},
-  {id:"amber", bg:"#b45309", light:"#fffbeb", border:"#fde68a"},
-  {id:"green", bg:"#15803d", light:"#f0fdf4", border:"#bbf7d0"},
-  {id:"gray",  bg:"#374151", light:"#f9fafb", border:"#e5e7eb"},
-];
-function getColor(cid){ return SUBJECT_COLORS.find(c=>c.id===cid)||SUBJECT_COLORS[0]; }
+// ─── Subject Color helpers ────────────────────────────────────────
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return {r,g,b};
+}
+function lightenHex(hex,amount=0.88){
+  const {r,g,b}=hexToRgb(hex);
+  const mix=(c)=>Math.round(c+(255-c)*amount);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
+function getColor(colorHex){
+  const bg=colorHex||"#1e4d8c";
+  return { bg, light:lightenHex(bg,0.88), border:lightenHex(bg,0.6) };
+}
 
 // ─── Subject Detail ────────────────────────────────────────────────
 function SubjectDetail({subject,onUpdate,onBack}){
@@ -555,8 +557,14 @@ function SubjectDetail({subject,onUpdate,onBack}){
     {/* Header */}
     <div style={{display:"flex",alignItems:"center",gap:".8rem",marginBottom:".9rem",paddingBottom:".9rem",borderBottom:`1px solid ${T.border}`}}>
       <button onClick={onBack} style={{background:"none",border:"none",color:T.accent,cursor:"pointer",fontWeight:"500",fontSize:".83rem",display:"flex",alignItems:"center",gap:".25rem",flexShrink:0}}><Icon name="chevLeft" size={13} color={T.accent}/>Asignaturas</button>
-      <div style={{width:10,height:10,borderRadius:"50%",background:col.bg,flexShrink:0}}/>
+      <div style={{position:"relative",flexShrink:0}}>
+        <input type="color" value={subject.color||"#1e4d8c"} onChange={ev=>onUpdate({...subject,color:ev.target.value})}
+          style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%",border:"none",padding:0}}
+          title="Cambiar color"/>
+        <div style={{width:18,height:18,borderRadius:"50%",background:col.bg,cursor:"pointer",boxShadow:"0 0 0 2px white, 0 0 0 3px "+col.bg,transition:"background .2s"}}/>
+      </div>
       <div style={{fontWeight:"700",fontSize:".95rem",color:T.text,flex:1}}>{subject.name}</div>
+      <div style={{fontSize:".72rem",color:T.textMuted,fontWeight:"400"}}>Clic en el círculo para cambiar color</div>
     </div>
 
     <SubTab tabs={tabs} active={tab} onChange={setTab}/>
@@ -702,7 +710,7 @@ function TeachingModule(){
   const [sel,setSel]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
   const [newName,setNewName]=useState("");
-  const [newColor,setNewColor]=useState("navy");
+  const [newColor,setNewColor]=useState("#1e4d8c");
   function persist(l){setSubjects(l);save(SK.subjects,l);}
   function updateSubject(upd){const l=subjects.map(s=>s.id===upd.id?upd:s);persist(l);setSel(upd);}
 
@@ -722,13 +730,15 @@ function TeachingModule(){
         {showAdd&&<Card style={{padding:".7rem",display:"flex",flexDirection:"column",gap:".5rem"}}>
           <div><Label>Nombre</Label><Input value={newName} onChange={ev=>setNewName(ev.target.value)} placeholder="Ej: Kinesiología Deportiva"/></div>
           <div><Label>Color</Label>
-            <div style={{display:"flex",flexWrap:"wrap",gap:".3rem",marginTop:".2rem"}}>
-              {SUBJECT_COLORS.map(c=><button key={c.id} onClick={()=>setNewColor(c.id)} style={{width:20,height:20,borderRadius:"50%",background:c.bg,border:newColor===c.id?"2px solid "+T.text:"2px solid transparent",cursor:"pointer",padding:0}}/>)}
+            <div style={{display:"flex",alignItems:"center",gap:".6rem",marginTop:".2rem"}}>
+              <input type="color" value={newColor} onChange={ev=>setNewColor(ev.target.value)}
+                style={{width:32,height:32,borderRadius:"6px",border:`1px solid ${T.border}`,cursor:"pointer",padding:2,background:"white"}}/>
+              <span style={{fontSize:".78rem",color:T.textMuted}}>Elige cualquier color</span>
             </div>
           </div>
           <div style={{display:"flex",gap:".3rem",justifyContent:"flex-end"}}>
             <Btn onClick={()=>{setShowAdd(false);setNewName("");}} variant="secondary" size="sm">×</Btn>
-            <Btn onClick={()=>{if(!newName)return;persist([...subjects,{id:uid(),name:newName,color:newColor,notes:"",dates:[],evals:[],rubrics:[]}]);setShowAdd(false);setNewName("");setNewColor("navy");}} size="sm" disabled={!newName} icon="check">Crear</Btn>
+            <Btn onClick={()=>{if(!newName)return;persist([...subjects,{id:uid(),name:newName,color:newColor,notes:"",dates:[],evals:[],rubrics:[]}]);setShowAdd(false);setNewName("");setNewColor("#1e4d8c");}} size="sm" disabled={!newName} icon="check">Crear</Btn>
           </div>
         </Card>}
         {subjects.map(s=>{
