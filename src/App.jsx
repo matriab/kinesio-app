@@ -59,6 +59,13 @@ const T = {
   white: "#ffffff",
 };
 
+// inject viewport meta if not present
+if(typeof document!=="undefined"&&!document.querySelector('meta[name="viewport"]')){
+  const m=document.createElement('meta');
+  m.name='viewport';m.content='width=device-width,initial-scale=1,maximum-scale=1';
+  document.head.appendChild(m);
+}
+
 const FONT = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
   *{font-family:'Inter','Aptos','Segoe UI',system-ui,sans-serif;box-sizing:border-box;}
@@ -111,22 +118,22 @@ const Icon = ({ name, size=16, color="currentColor", strokeWidth=1.75 }) => {
 
 // ─── Logo SVG ──────────────────────────────────────────────────────
 const Logo = ({ size=36 }) => (
-  <svg width={size} height={size} viewBox="0 0 260 300" fill="none">
+  <svg width={size} height={size} viewBox="0 0 260 260" fill="none">
 
-    <rect width="260" height="300" rx="52" fill="#1a2236"/>
+    <rect width="260" height="260" rx="52" fill="#1a2236"/>
 
     <path d="M130 78 Q150 128 130 178 Q110 228 130 282" fill="none" stroke="white" strokeWidth="4.5" strokeLinecap="round"/>
 
-    <line x1="112" y1="100" x2="148" y2="97"  stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="110" y1="118" x2="146" y2="116" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="109" y1="136" x2="145" y2="136" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="109" y1="154" x2="145" y2="155" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="110" y1="172" x2="146" y2="174" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="112" y1="190" x2="147" y2="193" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="115" y1="208" x2="148" y2="212" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="117" y1="226" x2="147" y2="230" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="119" y1="244" x2="146" y2="248" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    <line x1="121" y1="262" x2="145" y2="266" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="112" y1="80" x2="148" y2="77"  stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="110" y1="96" x2="146" y2="94" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="109" y1="112" x2="145" y2="112" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="109" y1="128" x2="145" y2="129" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="110" y1="144" x2="146" y2="146" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="112" y1="160" x2="147" y2="163" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="115" y1="176" x2="148" y2="180" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="117" y1="192" x2="147" y2="196" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="119" y1="208" x2="146" y2="212" stroke="white" strokeWidth="8" strokeLinecap="round"/>
+    <line x1="121" y1="224" x2="145" y2="228" stroke="white" strokeWidth="8" strokeLinecap="round"/>
 
     <polygon points="130,46 174,63 130,72 86,63" fill="#4a7cbf"/>
     <polygon points="86,63 130,72 174,63 174,68 130,77 86,68" fill="#2a5298" opacity="0.7"/>
@@ -1002,6 +1009,7 @@ export default function App(){
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
   const [area,setArea]=useState("clinical");
   const [templates,setTemplates]=useState(()=>load(SK.templates)||{eval:"",session:""});
   const [showTpl,setShowTpl]=useState(false);
@@ -1012,6 +1020,7 @@ export default function App(){
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{
       if(session?.user){ setUser(session.user); loadCloudData(session.user); }
+      else { setDataReady(true); }
       setAuthLoading(false);
     });
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_event,session)=>{
@@ -1024,6 +1033,7 @@ export default function App(){
   // Load all data from cloud on login
   async function loadCloudData(u) {
     setSyncing(true);
+    setDataReady(false);
     const keys = [...Object.values(SK), 'kinesio_summaries_v1'];
     for (const k of keys) {
       const cloudVal = await cloudLoad(u.id, k);
@@ -1033,6 +1043,7 @@ export default function App(){
       }
     }
     setSyncing(false);
+    setDataReady(true);
   }
 
   // Save to both local and cloud
@@ -1082,9 +1093,9 @@ export default function App(){
         </div>
       </header>
       <main style={{flex:1,padding:"1.2rem 1.5rem",maxWidth:"980px",width:"100%",margin:"0 auto",boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
-          {area==="clinical"&&<ClinicalModule templates={templates} onOpenTemplates={()=>setShowTpl(true)} syncSave={syncSave}/>}
-          {area==="research"&&<ResearchModule syncSave={syncSave}/>}
-          {area==="teaching"&&<TeachingModule syncSave={syncSave}/>}
+          {area==="clinical"&&<ClinicalModule key={`clinical-${dataReady}`} templates={templates} onOpenTemplates={()=>setShowTpl(true)} syncSave={syncSave}/>}
+          {area==="research"&&<ResearchModule key={`research-${dataReady}`} syncSave={syncSave}/>}
+          {area==="teaching"&&<TeachingModule key={`teaching-${dataReady}`} syncSave={syncSave}/>}
       </main>
       {showTpl&&<TemplateManager templates={templates} onSave={saveTpl} onClose={()=>setShowTpl(false)}/>}
       {showSearch&&<GlobalSearch onClose={()=>setShowSearch(false)} onNavigate={r=>{setArea("clinical");}}/>}
