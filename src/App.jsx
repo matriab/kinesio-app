@@ -59,11 +59,18 @@ const T = {
   white: "#ffffff",
 };
 
-// inject viewport meta if not present
-if(typeof document!=="undefined"&&!document.querySelector('meta[name="viewport"]')){
-  const m=document.createElement('meta');
-  m.name='viewport';m.content='width=device-width,initial-scale=1,maximum-scale=1';
-  document.head.appendChild(m);
+// inject viewport meta and PWA icons
+if(typeof document!=="undefined"){
+  if(!document.querySelector('meta[name="viewport"]')){
+    const m=document.createElement('meta');
+    m.name='viewport';m.content='width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover';
+    document.head.appendChild(m);
+  }
+  if(!document.querySelector('meta[name="theme-color"]')){
+    const m=document.createElement('meta');
+    m.name='theme-color';m.content='#1a2236';
+    document.head.appendChild(m);
+  }
 }
 
 const FONT = `
@@ -1061,7 +1068,15 @@ export default function App(){
   function saveTpl(t){setTemplates(t);syncSave(SK.templates,t);}
   useEffect(()=>{function h(e){if((e.metaKey||e.ctrlKey)&&e.key==="k"){e.preventDefault();setShowSearch(true);}}window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[]);
 
-  if(authLoading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f4f5f7",color:"#6b7280",fontSize:".9rem"}}>Cargando...</div>;
+  if(authLoading||(!dataReady&&user)) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#1a2236",flexDirection:"column",gap:"1rem"}}>
+      <Logo size={52}/>
+      <div style={{color:"rgba(255,255,255,.5)",fontSize:".85rem"}}>Cargando tu información...</div>
+      <div style={{width:180,height:3,background:"rgba(255,255,255,.1)",borderRadius:99,overflow:"hidden"}}>
+        <div style={{width:"60%",height:"100%",background:"#4a7cbf",borderRadius:99,animation:"none"}}/>
+      </div>
+    </div>
+  );
   if(!user) return <LoginScreen onLogin={u=>{setUser(u);loadCloudData(u);}}/>;
   return <>
     <style>{FONT}</style>
