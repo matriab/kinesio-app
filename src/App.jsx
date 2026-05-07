@@ -716,16 +716,11 @@ function TeachingModule(){
 
   const tabs=[{id:"subjects",label:"Asignaturas"},{id:"rubrics",label:"IA Rúbricas"},{id:"ia",label:"IA Docencia"}];
 
-  if(tab==="subjects"&&sel) return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-    <SubTab tabs={tabs} active={tab} onChange={t=>{if(t!=="subjects"){setSel(null);}setTab(t);}}/>
-    <SubjectDetail subject={sel} onUpdate={updateSubject} onBack={()=>setSel(null)}/>
-  </div>;
-
   return <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-    <SubTab tabs={tabs} active={tab} onChange={setTab}/>
+    <SubTab tabs={tabs} active={tab} onChange={t=>{if(t!=="subjects")setSel(null);setTab(t);}}/>
     {tab==="subjects"&&<div style={{display:"flex",gap:"1rem",flex:1,minHeight:0}}>
-      {/* Sidebar */}
-      <div style={{width:"200px",flexShrink:0,display:"flex",flexDirection:"column",gap:".35rem"}}>
+      {/* Sidebar — always visible */}
+      <div style={{width:"195px",flexShrink:0,display:"flex",flexDirection:"column",gap:".3rem",overflowY:"auto"}}>
         <Btn onClick={()=>setShowAdd(p=>!p)} icon="plus" size="sm" full>Nueva asignatura</Btn>
         {showAdd&&<Card style={{padding:".7rem",display:"flex",flexDirection:"column",gap:".5rem"}}>
           <div><Label>Nombre</Label><Input value={newName} onChange={ev=>setNewName(ev.target.value)} placeholder="Ej: Kinesiología Deportiva"/></div>
@@ -733,30 +728,39 @@ function TeachingModule(){
             <div style={{display:"flex",alignItems:"center",gap:".6rem",marginTop:".2rem"}}>
               <input type="color" value={newColor} onChange={ev=>setNewColor(ev.target.value)}
                 style={{width:32,height:32,borderRadius:"6px",border:`1px solid ${T.border}`,cursor:"pointer",padding:2,background:"white"}}/>
-              <span style={{fontSize:".78rem",color:T.textMuted}}>Elige cualquier color</span>
+              <span style={{fontSize:".75rem",color:T.textMuted}}>Elige el color</span>
             </div>
           </div>
           <div style={{display:"flex",gap:".3rem",justifyContent:"flex-end"}}>
             <Btn onClick={()=>{setShowAdd(false);setNewName("");}} variant="secondary" size="sm">×</Btn>
-            <Btn onClick={()=>{if(!newName)return;persist([...subjects,{id:uid(),name:newName,color:newColor,notes:"",dates:[],evals:[],rubrics:[]}]);setShowAdd(false);setNewName("");setNewColor("#1e4d8c");}} size="sm" disabled={!newName} icon="check">Crear</Btn>
+            <Btn onClick={()=>{if(!newName)return;const ns={id:uid(),name:newName,color:newColor,notes:"",dates:[],evals:[],rubrics:[]};persist([...subjects,ns]);setSel(ns);setShowAdd(false);setNewName("");setNewColor("#1e4d8c");}} size="sm" disabled={!newName} icon="check">Crear</Btn>
           </div>
         </Card>}
         {subjects.map(s=>{
           const col=getColor(s.color);
-          return <div key={s.id} onClick={()=>setSel(s)} style={{padding:".5rem .7rem",borderRadius:"6px",border:`1px solid ${sel?.id===s.id?col.bg:T.border}`,background:sel?.id===s.id?col.light:T.surface,cursor:"pointer",display:"flex",alignItems:"center",gap:".5rem",transition:"all .1s"}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:col.bg,flexShrink:0}}/>
-            <span style={{fontSize:".82rem",fontWeight:sel?.id===s.id?"600":"400",color:sel?.id===s.id?col.bg:T.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
-            <button onClick={ev=>{ev.stopPropagation();if(!confirm("¿Eliminar?"))return;persist(subjects.filter(x=>x.id!==s.id));if(sel?.id===s.id)setSel(null);}} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:0,flexShrink:0}}><Icon name="trash" size={11}/></button>
+          const isActive=sel?.id===s.id;
+          return <div key={s.id} onClick={()=>setSel(s)}
+            style={{borderRadius:"7px",overflow:"hidden",border:`2px solid ${isActive?col.bg:"transparent"}`,cursor:"pointer",transition:"all .15s",boxShadow:isActive?`0 0 0 1px ${col.bg}20`:"none"}}>
+            {/* Color band */}
+            <div style={{height:"5px",background:col.bg}}/>
+            {/* Body */}
+            <div style={{padding:".45rem .6rem",background:isActive?col.light:T.surface,display:"flex",alignItems:"center",gap:".4rem"}}>
+              <span style={{fontSize:".81rem",fontWeight:isActive?"700":"400",color:isActive?col.bg:T.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3}}>{s.name}</span>
+              <button onClick={ev=>{ev.stopPropagation();if(!confirm("¿Eliminar?"))return;persist(subjects.filter(x=>x.id!==s.id));if(sel?.id===s.id)setSel(null);}} style={{background:"none",border:"none",cursor:"pointer",color:T.textLight,padding:0,flexShrink:0,opacity:.6}}><Icon name="trash" size={11}/></button>
+            </div>
           </div>;
         })}
-        {subjects.length===0&&!showAdd&&<div style={{fontSize:".78rem",color:T.textLight,textAlign:"center",padding:"1rem 0"}}>Sin asignaturas aún</div>}
+        {subjects.length===0&&!showAdd&&<div style={{fontSize:".76rem",color:T.textLight,textAlign:"center",padding:"1.2rem 0",lineHeight:1.5}}>Sin asignaturas.<br/>Crea la primera.</div>}
       </div>
-      {/* Content */}
-      <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <div style={{textAlign:"center",color:T.textLight,fontSize:".86rem"}}>
-          <Icon name="teaching" size={32} color={T.border}/>
-          <div style={{marginTop:".5rem"}}>Selecciona una asignatura para ver su contenido</div>
-        </div>
+      {/* Content — SubjectDetail or empty state */}
+      <div style={{flex:1,minWidth:0}}>
+        {sel
+          ? <SubjectDetail key={sel.id} subject={subjects.find(s=>s.id===sel.id)||sel} onUpdate={updateSubject} onBack={()=>setSel(null)}/>
+          : <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",flexDirection:"column",gap:".5rem",color:T.textLight}}>
+              <Icon name="teaching" size={32} color={T.border}/>
+              <div style={{fontSize:".85rem"}}>Selecciona una asignatura</div>
+            </div>
+        }
       </div>
     </div>}
     {tab==="rubrics"&&<div style={{flex:1}}><AIChat key="rubrics" system="Eres docente universitaria experta en kinesiología. Creas rúbricas, pautas de cotejo e instrumentos de evaluación con criterios claros, niveles de desempeño y alineados con objetivos de aprendizaje." placeholder="Pide una rúbrica, pauta o instrumento..." suggestions={["Rúbrica evaluar examen físico de hombro","Pauta de cotejo para punción seca","Rúbrica presentación caso clínico 10 min","Instrumento evaluación práctica clínica final"]}/></div>}
