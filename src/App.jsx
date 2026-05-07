@@ -111,12 +111,12 @@ const Icon = ({ name, size=16, color="currentColor", strokeWidth=1.75 }) => {
 
 // ─── Logo SVG ──────────────────────────────────────────────────────
 const Logo = ({ size=36 }) => (
-  <svg width={size} height={size} viewBox="0 0 260 300" fill="none" xmlns="http://www.w3.org/2000/svg">
-    {/* Fondo cuadrado redondeado */}
+  <svg width={size} height={size} viewBox="0 0 260 300" fill="none">
+
     <rect width="260" height="300" rx="52" fill="#1a2236"/>
-    {/* Columna vertebral — curva */}
+
     <path d="M130 78 Q150 128 130 178 Q110 228 130 282" fill="none" stroke="white" strokeWidth="4.5" strokeLinecap="round"/>
-    {/* Vértebras */}
+
     <line x1="112" y1="100" x2="148" y2="97"  stroke="white" strokeWidth="8" strokeLinecap="round"/>
     <line x1="110" y1="118" x2="146" y2="116" stroke="white" strokeWidth="8" strokeLinecap="round"/>
     <line x1="109" y1="136" x2="145" y2="136" stroke="white" strokeWidth="8" strokeLinecap="round"/>
@@ -127,16 +127,16 @@ const Logo = ({ size=36 }) => (
     <line x1="117" y1="226" x2="147" y2="230" stroke="white" strokeWidth="8" strokeLinecap="round"/>
     <line x1="119" y1="244" x2="146" y2="248" stroke="white" strokeWidth="8" strokeLinecap="round"/>
     <line x1="121" y1="262" x2="145" y2="266" stroke="white" strokeWidth="8" strokeLinecap="round"/>
-    {/* Birrete — ala */}
+
     <polygon points="130,46 174,63 130,72 86,63" fill="#4a7cbf"/>
     <polygon points="86,63 130,72 174,63 174,68 130,77 86,68" fill="#2a5298" opacity="0.7"/>
-    {/* Copa del birrete */}
+
     <rect x="112" y="63" width="36" height="24" rx="7" fill="#2a5298"/>
-    {/* Botón */}
+
     <circle cx="130" cy="51" r="6" fill="#2a5298"/>
-    {/* Cordón */}
+
     <line x1="174" y1="63" x2="174" y2="78" stroke="#4a7cbf" strokeWidth="3" strokeLinecap="round"/>
-    {/* Borla */}
+
     <circle cx="174" cy="83" r="5.5" fill="#4a7cbf"/>
     <line x1="168" y1="86" x2="164" y2="101" stroke="#4a7cbf" strokeWidth="2.5" strokeLinecap="round"/>
     <line x1="174" y1="88" x2="174" y2="103" stroke="#4a7cbf" strokeWidth="2.5" strokeLinecap="round"/>
@@ -1082,11 +1082,9 @@ export default function App(){
         </div>
       </header>
       <main style={{flex:1,padding:"1.2rem 1.5rem",maxWidth:"980px",width:"100%",margin:"0 auto",boxSizing:"border-box",display:"flex",flexDirection:"column"}}>
-        <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"auto",background:T.surface,borderRadius:"8px",padding:"1rem"}}>
           {area==="clinical"&&<ClinicalModule templates={templates} onOpenTemplates={()=>setShowTpl(true)} syncSave={syncSave}/>}
           {area==="research"&&<ResearchModule syncSave={syncSave}/>}
           {area==="teaching"&&<TeachingModule syncSave={syncSave}/>}
-        </div>
       </main>
       {showTpl&&<TemplateManager templates={templates} onSave={saveTpl} onClose={()=>setShowTpl(false)}/>}
       {showSearch&&<GlobalSearch onClose={()=>setShowSearch(false)} onNavigate={r=>{setArea("clinical");}}/>}
